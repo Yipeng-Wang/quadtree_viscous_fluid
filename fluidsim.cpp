@@ -3,9 +3,6 @@
 #include "array2_utils.h"
 #include "fluidsim.h"
 
-#include "pcgsolver/sparse_matrix.h"
-#include "pcgsolver/pcg_solver.h"
-
 float fraction_inside(float phi_left, float phi_right);
 void extrapolate(Array2f& grid, Array2c& valid);
 
@@ -39,7 +36,7 @@ void FluidSim::initialize(float width, int ni_, int nj_) {
     liquid_phi.resize(ni, nj);
     particle_radius = dx / sqrt(2.0f);
     viscosity.resize(ni, nj);
-    viscosity.assign(1.0f);
+    viscosity.assign(1.f);
     
 }
 
@@ -272,15 +269,8 @@ void FluidSim::compute_phi() {
         }
     }
     
+    // More than 1 iteration should generate accurate signed distance.
     redistance(2);
-    
-//    // Check if signed distances are correct.
-//    for (int j= nj - 1; j >= 0; --j) {
-//        for (int i = 0; i < ni; ++i) {
-//            std::cout << liquid_phi(i, j) << " ";
-//        }
-//        std::cout << "\n\n";
-//    }
 
     //"extrapolate" phi into solids if nearby
     for (int j = 0; j < nj; ++j) {
@@ -541,7 +531,7 @@ void FluidSim::compute_pressure_weights() {
 
 // Divide each control volume into several subdivision and count the actual
 // volume on the free surface.
-void compute_volume_fractions(const Array2f& levelset, Array2f& fractions, Vec2f fraction_origin, int subdivision) {
+static void compute_volume_fractions(const Array2f& levelset, Array2f& fractions, Vec2f fraction_origin, int subdivision) {
     
     //Assumes levelset and fractions have the same dx
     float sub_dx = 1.0 / subdivision;
@@ -890,7 +880,6 @@ void FluidSim::solve_viscosity(float dt) {
                 vmatrix.add_to_element(index, u_ind(i, j - 1), -factor*visc_left*vol_left);
             else if (u_state(i, j - 1) == SOLID)
                 vrhs[index] -= -u_obj*factor*visc_left*vol_left;
-            
         }
     }
     
@@ -899,24 +888,22 @@ void FluidSim::solve_viscosity(float dt) {
     
     solver.solve(vmatrix, vrhs, velocities, res_out, iter_out);
     
-    for (int j = 0; j < nj; ++j)
-        for (int i = 0; i < ni + 1; ++i)
-            if (u_state(i, j) == FLUID)
-                u(i, j) = (float)velocities[u_ind(i, j)];
-            else if (u_state(i, j) == SOLID)
-                u(i, j) = u_obj;
+    for (int j = 0; j < nj; ++j) for (int i = 0; i < ni + 1; ++i) {
+        if (u_state(i, j) == FLUID) {
+            u(i, j) = (float)velocities[u_ind(i, j)];
+        } else if (u_state(i, j) == SOLID) {
+            u(i, j) = u_obj;
+        }
+    }
     
-    
-    
-    for (int j = 0; j < nj + 1; ++j)
-        for (int i = 0; i < ni; ++i)
-            if (v_state(i, j) == FLUID)
-                v(i, j) = (float)velocities[v_ind(i, j)];
-            else if (v_state(i, j) == SOLID)
-                v(i, j) = v_obj;
+    for (int j = 0; j < nj + 1; ++j) for (int i = 0; i < ni; ++i) {
+        if (v_state(i, j) == FLUID) {
+            v(i, j) = (float)velocities[v_ind(i, j)];
+        } else if (v_state(i, j) == SOLID) {
+            v(i, j) = v_obj;
+        }
+    }
 }
-
-
 
 
 //Apply several iterations of a very simple "Jacobi"-style propagation of valid velocity data in all directions

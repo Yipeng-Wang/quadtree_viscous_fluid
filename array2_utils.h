@@ -1,9 +1,9 @@
 #ifndef ARRAY2_UTILS_H
 #define ARRAY2_UTILS_H
 
-#include "vec.h"
 #include "array2.h"
 #include "util.h"
+#include "vec.h"
 
 template<class S, class T>
 // the first input is the index of the point.

@@ -5,10 +5,12 @@
 #include <string>
 #include <cfloat>
 
-#include "gluvi.h"
-#include "fluidsim.h"
-#include "openglutils.h"
 #include "array2_utils.h"
+#include "gluvi.h"
+#include "fluidquadtree.h"
+#include "fluidsim.h"
+#include "levelsetdraw.h"
+#include "openglutils.h"
 
 using namespace std;
 
@@ -18,9 +20,11 @@ float timestep = 0.002;
 
 //Display properties
 bool draw_grid = false;
-bool draw_particles = true;
+bool draw_particles = false;
 bool draw_velocities = false;
 bool draw_boundaries = true;
+bool draw_surface = true;
+bool draw_quadtree = true;
 
 float grid_width = 1;
 
@@ -74,8 +78,7 @@ float boundary_phi(const Vec2f& position) {
 
 //Main testing code
 //-------------
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     
     //Setup viewer stuff
     Gluvi::init("GFM Free Surface Liquid Solver with Static Variational Boundaries", &argc, argv);
@@ -85,7 +88,7 @@ int main(int argc, char **argv)
     Gluvi::userDragFunc=drag;
     glClearColor(1,1,1,1);
     
-    glutTimerFunc(1000, timer, 0);
+    //glutTimerFunc(1000, timer, 0);
     
     //Set up the simulation
     sim.initialize(grid_width, grid_resolution, grid_resolution);
@@ -93,9 +96,10 @@ int main(int argc, char **argv)
     //set up a circle boundary
     sim.set_boundary(boundary_phi);
     
-    //Stick some liquid particles in the domain
+    //Stick some liquid particles in the domain, add more particles
+    // to avoid noise when plotting the fluid surface.
     int offset = 0;
-    for(int i = 0; i < sqr(grid_resolution); ++i) {
+    for(int i = 0; i < sqr(grid_resolution) * 1.5; ++i) {
         for(int parts = 0; parts < 3; ++parts) {
             float x = randhashf(++offset, 0,1);
             float y = randhashf(++offset, 0,1);
@@ -104,27 +108,27 @@ int main(int argc, char **argv)
             //add a column (for buckling) and a beam (for bending) and a disk (for rolling and flowing)
             if (boundary_phi(pt) > 0 && ((pt[0] > 0.42 && pt[0] < 0.46)
                 || (pt[0] < 0.36 && pt[1] > 0.45 && pt[1] < 0.5)
-                || circle_phi(pt, Vec2f(0.7, 0.65), 0.15) > 0)) {
+                || circle_phi(pt, Vec2f(0.8, 0.65), 0.15) > 0)) {
                 sim.add_particle(pt);
             }
             
             
-            // filled half of the tank with fluid. Check if the signed distance is correct.
-//            if (boundary_phi(pt) > 0 && pt[1] <= 0.5) {
+//            // filled half of the tank with fluid. Check if the signed distance is correct.
+//            if (boundary_phi(pt) > 0 && (pt[1] <= 0.3 || (pt[0] < 0.3 && pt[1] <= 0.75))) {
 //                sim.add_particle(pt);
 //            }
+            
         }
     }
     
-    //sim.advance(timestep);
+    sim.advance(timestep);
     
     Gluvi::run();
     return 0;
 }
 
 
-void display(void)
-{
+void display(void) {
     
     if(draw_grid) {
         glColor3f(0,0,0);
@@ -133,6 +137,8 @@ void display(void)
     }
     
     if(draw_boundaries) {
+        glColor3f(0,0,0);
+        glLineWidth(1);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         // draw a circular boundary.
         //draw_circle2d(c0, rad0, 50);
@@ -158,10 +164,35 @@ void display(void)
             draw_arrow2d(pos, pos + 0.01f*sim.get_velocity(pos), 0.01*sim.dx);
         }
     }
+    
+    if (draw_surface) {
+        glColor3f(0,0,1);
+        glLineWidth(2);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        
+        LevelSetDraw ls_draw(sim.liquid_phi, sim.dx);
+        ls_draw.extract_mesh();
+        draw_segmentset2d(ls_draw.verts, ls_draw.edges);
+    }
+    
+    if (draw_quadtree) {
+        glColor3f(1,0,0);
+        glLineWidth(0.1);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        FluidQuadTree tree(grid_width, sim.liquid_phi);
+        
+        Vec2f start(0., 0.);
+        for (size_t i = 0; i < tree.leaf_cells.size(); ++i) {
+            Cell c = tree.leaf_cells[i];
+            float h = tree.get_cell_width(c.depth);
+            start = h * Vec2f((float)c.i, (float)c.j);
+            draw_box2d(start, h, h);
+        }
+    }
+
 }
 
-void mouse(int button, int state, int x, int y)
-{
+void mouse(int button, int state, int x, int y) {
     Vec2f newmouse;
     cam.transform_mouse(x, y, newmouse.v);
     //double newmousetime=get_time_in_seconds();
@@ -170,8 +201,7 @@ void mouse(int button, int state, int x, int y)
     //oldmousetime=newmousetime;
 }
 
-void drag(int x, int y)
-{
+void drag(int x, int y) {
     Vec2f newmouse;
     cam.transform_mouse(x, y, newmouse.v);
     //double newmousetime=get_time_in_seconds();
@@ -181,8 +211,7 @@ void drag(int x, int y)
 }
 
 
-void timer(int junk)
-{
+void timer(int junk) {
     
     sim.advance(timestep);
     

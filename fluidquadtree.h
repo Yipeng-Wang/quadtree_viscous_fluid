@@ -13,11 +13,10 @@
 #include <Eigen/Sparse>
 #include <Eigen/SparseCore>
 
-#include "array2.h"
+#include "array2_utils.h"
 #include "vec.h"
-#include "domain.h"
 
-typedef Eigen::SparseMatrix<double> SpMat;
+typedef Eigen::SparseMatrix<float> SpMat;
 
 enum FacePosition {
 	RIGHT, LEFT, TOP, BOTTOM
@@ -78,24 +77,20 @@ struct FluidNode {
 	}
 };
 
-extern int pow2(int);
-
 // Define a quadtree structure and its functions. 
 struct FluidQuadTree {
-	// Whether to always use the diagonal extrapolants, or revert to Martin approach
-	bool use_only_diagonal_interpolants = true;
-	bool use_Dirichlet_BC; //Dirichlet v.s. Neumann BC switch
-
-	double domain_width;
-	Vec2d domain_origin;
-
-	std::unique_ptr<Domain> domain;
-
-	int max_depth;
-
-	std::vector<Array2c> cells;
+    Array2f liquid_phi;
+    
+    // H matrix transform the liquid velocities on regular grid
+    // to that on a quadtree grid.
+    SpMat H;
+    
+	std::vector<Array2i> cells;
 	std::vector<Array2i> cellInds;
-
+    
+    // signed distance at each level.
+    std::vector<Array2f> all_phi;
+    
 	std::vector<Cell> leaf_cells;
 	std::vector<FluidFace> velocity_faces;
 	
@@ -103,14 +98,15 @@ struct FluidQuadTree {
 	std::vector<FluidNode> nodes;
 		
 	// The order of faces is (right, left, top, bottom). 
-	std::vector<std::vector<int>> cell_to_face_map;
+    Array2i cell_to_face_map;
 
 	// The order of faces is (right, left, top, bottom). 
 	// If a face doesn't exist(T junction), then it is stored as -1.
 	std::vector<std::vector<int>> node_to_face_map;
 
 	// The order of nodes is (SW, SE, NW, NE).
-	std::vector<std::vector<int>> cell_to_node_map;
+	//std::vector<std::vector<int>>
+    Array2i cell_to_node_map;
 
 	// The order of nodes is (right, left) or (top, bottom).
 	std::map<int, Vec2i> face_to_node_map;
@@ -119,29 +115,20 @@ struct FluidQuadTree {
 	// the cells on each side are also in the preceding order.
 	std::map<int, std::pair<std::vector<int>, std::vector<int>>> face_to_cell_map;
 
-	int leafCellCount, activeCellCount;
-	int faceCount;
-	int nodeCount;
-
-	std::vector<double> pressure_errors;
-	std::vector<double> velocity_errors;
-
+	int leaf_cell_count, active_cell_count;
+	int face_count;
+	int node_count;
+    
 	// FluidQuadTree constructor.
-	FluidQuadTree(std::unique_ptr<Domain> dom, Array2f phi, double threshold);
-
-	void print_ascii_tree();
-
+	FluidQuadTree(float width, Array2f liquid_phi_);
+    
 	//tree overall manipulation
-	void enforce_boundary_rule();
-	void enforce_boundary_rule_internal();
-	void grade();
-	void refine();
 	void reindex();
 
 	//boolean tests on tree
-	bool is_cell_active(Cell c);
-	bool is_cell_in_bounds(Cell c);
-	bool is_leaf_cell(Cell c);
+	bool is_cell_active(const Cell& c);
+	bool is_cell_in_bounds(const Cell& c);
+	bool is_leaf_cell(const Cell& c);
 
 	//Accessors by neighbour relationships
 	Cell above(Cell c);
@@ -153,17 +140,32 @@ struct FluidQuadTree {
 	Cell get_active_parent(Cell c);
 	Cell get_child(const Cell &c, const DiagonalDirection &dir);
 	Cell get_leaf_cell(const Cell &c, const DiagonalDirection &dir);
-	Cell get_parent(Cell c);
+	Cell get_parent(const Cell& c);
 
 	// Some geometry lookups
-	Vec2d get_cell_centre(Cell c);
-	Vec2d get_face_centre(FluidFace f);
-	Vec2d get_node_position(FluidNode n);
+	Vec2f get_cell_centre(const Cell& c);
+	Vec2f get_face_centre(const FluidFace& f);
+	Vec2f get_node_position(const FluidNode& n);
 
 	// Cell indexing info
-	int get_cell_index(Cell c);
+	int get_cell_index(const Cell& c);
 	int get_level_dims(int depth);
-	double get_cell_width(int depth);
+	float get_cell_width(int depth);
+    
+    void get_trans_matrix();
+    
+    // Data for viscosity solve, c_vol is cell volumes and n_vol is node volumes.
+    Array2f u_vol, v_vol, c_vol, n_vol;
+    Array2f viscosity;
+    
+    void compute_reg_grid_weights();
+
+private:
+    float domain_width;
+    int max_depth;
+    float dx;
+    int ni, nj;
+
 };
 
 #endif 

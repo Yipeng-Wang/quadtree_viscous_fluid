@@ -9,6 +9,7 @@
 // Dynamic compressed sparse row matrix.
 
 template<class T>
+
 struct SparseMatrix
 {
    unsigned int n; // dimension

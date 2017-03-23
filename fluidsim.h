@@ -2,12 +2,17 @@
 #define FLUIDSIM_H
 
 #include "array2.h"
-#include "core.h"
 #include "vec.h"
 #include "pcgsolver/sparse_matrix.h"
 #include "pcgsolver/pcg_solver.h"
 
 #include <vector>
+
+static Vec2i cell_offset[] = { Vec2i(-1,0), Vec2i(1,0), Vec2i(0,-1), Vec2i(0,1) }; // cell to cell offset
+
+enum marked { UNVISITED, VISITED, FINISHED }; // BFS marker type.
+
+typedef Array2<marked, Array1<marked>> Array2m; // define the type for the redistancing marker.
 
 class FluidSim {
     
