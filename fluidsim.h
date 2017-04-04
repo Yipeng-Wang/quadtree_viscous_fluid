@@ -5,6 +5,7 @@
 #include "vec.h"
 #include "pcgsolver/sparse_matrix.h"
 #include "pcgsolver/pcg_solver.h"
+#include "viscositysolver.h"
 
 #include <vector>
 
@@ -23,6 +24,7 @@ public:
     
     // Grid dimensions
     int ni, nj;
+    float width;
     float dx;
     
     // Fluid velocity
@@ -55,7 +57,7 @@ public:
     SparseMatrixd matrix;
     std::vector<double> rhs;
     std::vector<double> pressure;
-    
+        
     SparseMatrixd vmatrix;
     std::vector<double> vrhs;
     std::vector<double> velocities;
@@ -88,6 +90,9 @@ private:
     int u_ind(int i, int j);
     int v_ind(int i, int j);
     void apply_viscosity(float dt);
+    
+    void apply_viscosity_quadtree(float dt);
+    
     void compute_viscosity_weights();
     void solve_viscosity(float dt);
     

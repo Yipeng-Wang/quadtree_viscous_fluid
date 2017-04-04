@@ -16,9 +16,10 @@ float circle_phi(const Vec2f& pos) {
     return min(phi0, phi1);
 }
 
-void FluidSim::initialize(float width, int ni_, int nj_) {
+void FluidSim::initialize(float width_, int ni_, int nj_) {
     ni = ni_;
     nj = nj_;
+    width = width_;
     dx = width / (float)ni;
     u.resize(ni + 1, nj); temp_u.resize(ni + 1, nj); u_weights.resize(ni + 1, nj); u_valid.resize(ni + 1, nj); u_vol.resize(ni + 1, nj);
     v.resize(ni, nj + 1); temp_v.resize(ni, nj + 1); v_weights.resize(ni, nj + 1); v_valid.resize(ni, nj + 1); v_vol.resize(ni, nj + 1);
@@ -79,7 +80,9 @@ void FluidSim::advance(float dt) {
         advect(substep);
         add_force(substep);
         
-        apply_viscosity(substep);
+        //apply_viscosity(substep);
+        
+        apply_viscosity_quadtree(substep);
         
         apply_projection(substep);
         
@@ -483,6 +486,12 @@ void FluidSim::apply_viscosity(float dt) {
     
 }
 
+void FluidSim::apply_viscosity_quadtree(float dt) {
+    VisSolver vis_solver(u, v, viscosity, width, liquid_phi, nodal_solid_phi, dt);
+    u = vis_solver.u;
+    v = vis_solver.v;
+}
+
 //Apply RK2 to advect a point in the domain.
 Vec2f FluidSim::trace_rk2(const Vec2f& position, float dt) {
     Vec2f input = position;
@@ -694,8 +703,6 @@ int FluidSim::v_ind(int i, int j) {
 
 
 void FluidSim::solve_viscosity(float dt) {
-    int ni = liquid_phi.ni;
-    int nj = liquid_phi.nj;
     
     //static obstacles for simplicity - for moving objects,
     //use a spatially varying 2d array, and modify the linear system appropriately

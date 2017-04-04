@@ -4,25 +4,21 @@
 #include <stack>
 #include <set>
 
-#pragma warning(push)
-#pragma warning(disable: 4244)
-#pragma warning(pop)
-
-
 FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(width), liquid_phi(liquid_phi_) {
+    
     ni = liquid_phi.ni;
     nj = liquid_phi.nj;
     dx = width / (float) ni;
     
     max_depth = 2;
     
-    cells.resize(max_depth);
+    cell_markers.resize(max_depth);
     cellInds.resize(max_depth);
     
     int ni_tmp = ni, nj_tmp = nj;
     for (int depth = max_depth-1; depth >= 0; --depth) {
-        cells[depth].resize(ni_tmp, nj_tmp);
-        cells[depth].assign(1);
+        cell_markers[depth].resize(ni_tmp, nj_tmp);
+        cell_markers[depth].assign(1);
         
         cellInds[depth].resize(ni_tmp, nj_tmp);
         cellInds[depth].assign(-1);
@@ -35,7 +31,7 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(wi
     
     int depth = max_depth - 2;
     
-    float threshold = -2.3 * dx;
+    float threshold = -2.5 * dx;
     
     ni_tmp = get_level_dims(depth);
     for (int i = 0; i < ni_tmp; ++i) for (int j = 0; j < ni_tmp; ++j) {
@@ -56,7 +52,7 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(wi
         
         for (int offi = 0; offi < 2; ++offi) {
             for (int offj = 0; offj < 2; ++offj) {
-                cells[depth + 1](i_ind + offi, j_ind + offj) = 0;
+                cell_markers[depth + 1](i_ind + offi, j_ind + offj) = 0;
             }
         }
     }
@@ -68,10 +64,6 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(wi
 
 void FluidQuadTree::reindex() {
     //count leaf nodes, and set up indices
-    cell_to_face_map.clear();
-    velocity_faces.clear();
-    nodes.clear();
-    
     leaf_cell_count = 0;
     for (int depth = 0; depth < max_depth; ++depth) {
         int ni = get_level_dims(depth);
@@ -85,7 +77,6 @@ void FluidQuadTree::reindex() {
             }
         }
     }
-    
     
     active_cell_count = leaf_cell_count;
     // Add extra indices for non-leaf nodes (for alternate axis-aligned solution - *not used for core method*)
@@ -111,39 +102,39 @@ void FluidQuadTree::reindex() {
             
             //right
             if (i == ni - 1 || (i < ni - 1 && is_cell_active(right(c)))) {
-                FluidFace new_face(depth, i, j, RIGHT);
-                velocity_faces.push_back(new_face);
+                Face new_face(depth, i, j, RIGHT);
+                qt_faces.push_back(new_face);
             }
             
             //top
             if (j == ni - 1 || (j < ni - 1 && is_cell_active(above(c)))) {
-                FluidFace new_face(depth, i, j, TOP);
-                velocity_faces.push_back(new_face);
+                Face new_face(depth, i, j, TOP);
+                qt_faces.push_back(new_face);
             }
             
             //left
             if (i == 0 || (i > 0 && is_cell_active(left(c)) && !is_leaf_cell(left(c)))) {
                 //only keep if left neighbour is finer
-                FluidFace new_face(depth, i, j, LEFT);
-                velocity_faces.push_back(new_face);
+                Face new_face(depth, i, j, LEFT);
+                qt_faces.push_back(new_face);
             }
             
             //bottom
             if (j == 0 || (j > 0 && is_cell_active(below(c)) && !is_leaf_cell(below(c)))) {
                 //only keep if bottom neighbour is finer
-                FluidFace new_face(depth, i, j, BOTTOM);
-                velocity_faces.push_back(new_face);
+                Face new_face(depth, i, j, BOTTOM);
+                qt_faces.push_back(new_face);
             }
         }
     }
     
-    face_count = (int)velocity_faces.size();
+    face_count = (int)qt_faces.size();
     
-    // Create the cell to face map, a cell owns its bottom and left faces.
+    // Create the cell to face map.
     cell_to_face_map.resize(leaf_cell_count, 4);
     
     for (int f = 0; f < face_count; ++f) {
-        FluidFace face = velocity_faces[f];
+        Face& face = qt_faces[f];
         
         int forward_i, forward_j;
         int backward_i, backward_j;
@@ -190,9 +181,11 @@ void FluidQuadTree::reindex() {
         std::stack<std::tuple<Cell, FacePosition>> cells_to_process;
         Cell first_cell(face.depth, forward_i, forward_j);
         Cell second_cell(face.depth, backward_i, backward_j);
+        
         if (is_cell_in_bounds(first_cell)) {
             cells_to_process.push(std::make_tuple(first_cell, for_pos));
         }
+        
         if (is_cell_in_bounds(second_cell)) {
             cells_to_process.push(std::make_tuple(second_cell, back_pos));
         }
@@ -239,7 +232,7 @@ void FluidQuadTree::reindex() {
     
     ///////////////////////////////////////////////////////////////////////////
     // Set up nodes in the right places
-    std::vector<FluidNode> inner_nodes;
+    std::vector<Node> inner_nodes;
     int node_idx = 0;
     node_to_face_map.resize(leaf_cell_count * 4);
     
@@ -253,10 +246,11 @@ void FluidQuadTree::reindex() {
             if (!is_leaf_cell(c)) {
                 continue;
             }
+            
             // First put in boundary nodes.
             // Nodes on the left boundary.
             if (i == 0 && j != 0) {
-                FluidNode left_bound_node(depth, i, j, SW);
+                Node left_bound_node(depth, i, j, SW);
                 nodes.push_back(left_bound_node);
                 int cell_idx = cellInds[left_bound_node.depth](left_bound_node.i, left_bound_node.j);
                 node_to_face_map[node_idx].push_back(cell_to_face_map(cell_idx,3));
@@ -276,7 +270,7 @@ void FluidQuadTree::reindex() {
             
             // Nodes on the bottom boundary.
             if (i != 0 && j == 0) {
-                FluidNode bottom_bound(depth, i, j, SW);
+                Node bottom_bound(depth, i, j, SW);
                 nodes.push_back(bottom_bound);
                 int cell_idx = cellInds[bottom_bound.depth](bottom_bound.i, bottom_bound.j);
                 node_to_face_map[node_idx].push_back(cell_to_face_map(cell_idx, 1));
@@ -296,7 +290,7 @@ void FluidQuadTree::reindex() {
             
             // Nodes on the right boundary.
             if (i == ni - 1 && j != ni - 1) {
-                FluidNode right_bound(depth, i, j, NE);
+                Node right_bound(depth, i, j, NE);
                 nodes.push_back(right_bound);
                 int cell_idx = cellInds[right_bound.depth](right_bound.i, right_bound.j);
                 node_to_face_map[node_idx].push_back(cell_to_face_map(cell_idx, 2));
@@ -316,7 +310,7 @@ void FluidQuadTree::reindex() {
             
             // Nodes on the top boundary.
             if (i != ni - 1 && j == ni - 1) {
-                FluidNode top_bound(depth, i, j, NE);
+                Node top_bound(depth, i, j, NE);
                 nodes.push_back(top_bound);
                 int cell_idx = cellInds[top_bound.depth](top_bound.i, top_bound.j);
                 node_to_face_map[node_idx].push_back(cell_to_face_map(cell_idx, 0));
@@ -337,27 +331,29 @@ void FluidQuadTree::reindex() {
             //collect all inner nodes.
             if (i != ni - 1 && j != ni - 1) {
                 // First, add the node at the top right corner of each cell.
-                FluidNode top_right_node(depth, i, j, NE);
+                Node top_right_node(depth, i, j, NE);
                 inner_nodes.push_back(top_right_node);
                 
                 // Add nodes at lower right corners when the lower cell is larger.
                 if (j != 0 && !is_cell_active(below(c))) {
-                    // Suppose the cell c is at the top left corner of the T junction node.
+                    // Suppose the cell c is at the top left corner of the T
+                    // junction node.
                     Cell lower_left = get_active_parent(below(c));
                     Cell lower_right = get_active_parent(below(right(c)));
                     if (lower_left == lower_right) {
-                        FluidNode t_junction_node(depth, i, j, SE);
+                        Node t_junction_node(depth, i, j, SE);
                         inner_nodes.push_back(t_junction_node);
                     }
                 }
                 
-                // Add nodes at lower left corners when the left cell is larger.
+                // Add nodes at upper left corners when the left cell is larger.
                 if (i != 0 && !is_cell_active(left(c))) {
-                    // Suppose the cell c is at the lower right corner of the T junction node.
+                    // Suppose the cell c is at the lower right corner of the T
+                    // junction node.
                     Cell lower_left = get_active_parent(left(c));
                     Cell upper_left = get_active_parent(left(above(c)));
                     if (lower_left == upper_left) {
-                        FluidNode t_junction_node(depth, i, j, NW);
+                        Node t_junction_node(depth, i, j, NW);
                         inner_nodes.push_back(t_junction_node);
                     }
                 }
@@ -366,43 +362,43 @@ void FluidQuadTree::reindex() {
     }
     
     // Address inner nodes.
-    for (FluidNode& node : inner_nodes) {
+    for (Node& node : inner_nodes) {
         // The default position of a node respect to a cell is NE.
-        int	LLeft_i, LLeft_j, LRight_i, LRight_j;
-        int ULeft_i, ULeft_j, URight_i, URight_j;
+        int	LL_i, LL_j, LR_i, LR_j;
+        int UL_i, UL_j, UR_i, UR_j;
         
         switch (node.position) {
             case NE:
-                LLeft_i = node.i, LLeft_j = node.j;
-                LRight_i = node.i + 1, LRight_j = node.j;
-                ULeft_i = node.i, ULeft_j = node.j + 1;
-                URight_i = node.i + 1, URight_j = node.j + 1;
+                LL_i = node.i, LL_j = node.j;
+                LR_i = node.i + 1, LR_j = node.j;
+                UL_i = node.i, UL_j = node.j + 1;
+                UR_i = node.i + 1, UR_j = node.j + 1;
                 break;
             case SE:
-                LLeft_i = node.i, LLeft_j = node.j - 1;
-                LRight_i = node.i + 1, LRight_j = node.j - 1;
-                ULeft_i = node.i, ULeft_j = node.j;
-                URight_i = node.i + 1, URight_j = node.j;
+                LL_i = node.i, LL_j = node.j - 1;
+                LR_i = node.i + 1, LR_j = node.j - 1;
+                UL_i = node.i, UL_j = node.j;
+                UR_i = node.i + 1, UR_j = node.j;
                 break;
             case SW:
-                LLeft_i = node.i - 1, LLeft_j = node.j - 1;
-                LRight_i = node.i, LRight_j = node.j - 1;
-                ULeft_i = node.i - 1, ULeft_j = node.j;
-                URight_i = node.i, URight_j = node.j;
+                LL_i = node.i - 1, LL_j = node.j - 1;
+                LR_i = node.i, LR_j = node.j - 1;
+                UL_i = node.i - 1, UL_j = node.j;
+                UR_i = node.i, UR_j = node.j;
                 break;
             case NW:
-                LLeft_i = node.i - 1, LLeft_j = node.j;
-                LRight_i = node.i, LRight_j = node.j;
-                ULeft_i = node.i - 1, ULeft_j = node.j + 1;
-                URight_i = node.i, URight_j = node.j + 1;
+                LL_i = node.i - 1, LL_j = node.j;
+                LR_i = node.i, LR_j = node.j;
+                UL_i = node.i - 1, UL_j = node.j + 1;
+                UR_i = node.i, UR_j = node.j + 1;
                 break;
         }
         
         // Find all the cells touching this node
-        Cell LL_cell(node.depth, LLeft_i, LLeft_j);
-        Cell LR_cell(node.depth, LRight_i, LRight_j);
-        Cell UL_cell(node.depth, ULeft_i, ULeft_j);
-        Cell UR_cell(node.depth, URight_i, URight_j);
+        Cell LL_cell(node.depth, LL_i, LL_j);
+        Cell LR_cell(node.depth, LR_i, LR_j);
+        Cell UL_cell(node.depth, UL_i, UL_j);
+        Cell UR_cell(node.depth, UR_i, UR_j);
         
         Cell LL_leaf = get_leaf_cell(LL_cell, NE);
         Cell LR_leaf = get_leaf_cell(LR_cell, NW);
@@ -459,8 +455,8 @@ void FluidQuadTree::reindex() {
     
     ///////////////////////////////////////////////////////////////////////////
     // Set face_to_node_map and face_to_cell_map.
-    for (int i = 0; i < velocity_faces.size(); ++i) {
-        FluidFace& f = velocity_faces[i];
+    for (int i = 0; i < qt_faces.size(); ++i) {
+        Face& f = qt_faces[i];
         int n = get_level_dims(f.depth);
         // Skip faces on boundaries.
         if ((f.i == 0 && f.position == LEFT) || (f.i == n - 1 && f.position == RIGHT) || (f.j == 0 && f.position == BOTTOM) || (f.j == n - 1 && f.position == TOP)) {
@@ -561,24 +557,23 @@ void FluidQuadTree::reindex() {
     }
 }
 
-
-Cell FluidQuadTree::right(Cell c) {
-    return Cell(c.depth, c.i + 1, c.j);
-}
-
-Cell FluidQuadTree::left(Cell c) {
-    return Cell(c.depth, c.i - 1, c.j);
-}
-
-Cell FluidQuadTree::above(Cell c) {
+Cell FluidQuadTree::above(const Cell& c) {
     return Cell(c.depth, c.i, c.j + 1);
 }
 
-Cell FluidQuadTree::below(Cell c) {
+Cell FluidQuadTree::below(const Cell& c) {
     return Cell(c.depth, c.i, c.j - 1);
 }
 
-Cell FluidQuadTree::child(Cell c) {
+Cell FluidQuadTree::right(const Cell& c) {
+    return Cell(c.depth, c.i + 1, c.j);
+}
+
+Cell FluidQuadTree::left(const Cell& c) {
+    return Cell(c.depth, c.i - 1, c.j);
+}
+
+Cell FluidQuadTree::child(const Cell& c) {
     return Cell(c.depth + 1, 2 * c.i, 2 * c.j);
 }
 
@@ -596,20 +591,18 @@ Cell FluidQuadTree::get_active_parent(Cell c) {
 bool FluidQuadTree::is_leaf_cell(const Cell& c) {
     assert(c.depth >= 0 && c.depth < max_depth);
     
-    bool children_dont_exist = c.depth == max_depth-1? true : cells[c.depth + 1](2 * c.i, 2 * c.j) == 0;
+    bool children_dont_exist = c.depth == max_depth-1? true : cell_markers[c.depth + 1](2 * c.i, 2 * c.j) == 0;
     return is_cell_active(c) && children_dont_exist;
 }
 
 bool FluidQuadTree::is_cell_in_bounds(const Cell& c) {
-    Vec2f pos = get_cell_centre(c);
-    
     int dim_size = get_level_dims(c.depth);
     return c.i >= 0 && c.j >= 0 && c.i < dim_size && c.j < dim_size;
 }
 
 bool FluidQuadTree::is_cell_active(const Cell& c) {
     assert(c.depth >= 0 && c.depth < max_depth);
-    return cells[c.depth](c.i, c.j) == 1;
+    return cell_markers[c.depth](c.i, c.j) == 1;
 }
 
 Vec2f FluidQuadTree::get_cell_centre(const Cell& c) {
@@ -619,7 +612,7 @@ Vec2f FluidQuadTree::get_cell_centre(const Cell& c) {
     return Vec2f(x, y);
 }
 
-Vec2f FluidQuadTree::get_face_centre(const FluidFace& f) {
+Vec2f FluidQuadTree::get_face_centre(const Face& f) {
     
     Cell c(f.depth, f.i, f.j);
     float h = get_cell_width(f.depth);
@@ -639,7 +632,7 @@ Vec2f FluidQuadTree::get_face_centre(const FluidFace& f) {
     
 }
 
-Vec2f FluidQuadTree::get_node_position(const FluidNode& n) {
+Vec2f FluidQuadTree::get_node_position(const Node& n) {
     Cell c(n.depth, n.i, n.j);
     float h = get_cell_width(c.depth);
     Vec2f cell_centre = get_cell_centre(c);
@@ -658,7 +651,7 @@ Vec2f FluidQuadTree::get_node_position(const FluidNode& n) {
 }
 
 int FluidQuadTree::get_level_dims(int level) {
-    return cells[level].ni;
+    return cell_markers[level].ni;
 }
 
 float FluidQuadTree::get_cell_width(int level) {
@@ -705,39 +698,8 @@ Cell FluidQuadTree::get_parent(const Cell& c) {
     return result;
 }
 
-// Divide each control volume into several subdivision and count the actual
-// volume on the free surface.
-static void compute_volume_fractions(const Array2f& levelset, Array2f& fractions, Vec2f fraction_origin, int subdivision) {
-    
-    //Assumes levelset and fractions have the same dx
-    float sub_dx = 1.0 / subdivision;
-    int sample_max = subdivision*subdivision;
-    for (int j = 0; j < fractions.nj; ++j) {
-        for (int i = 0; i < fractions.ni; ++i) {
-            float start_x = fraction_origin[0] + (float)i;
-            float start_y = fraction_origin[1] + (float)j;
-            int incount = 0;
-            
-            for (int sub_j = 0; sub_j < subdivision; ++sub_j) {
-                for (int sub_i = 0; sub_i < subdivision; ++sub_i) {
-                    float x_pos = start_x + (sub_i + 0.5)*sub_dx;
-                    float y_pos = start_y + (sub_j + 0.5)*sub_dx;
-                    float phi_val = interpolate_value(Vec2f(x_pos, y_pos), levelset);
-                    if (phi_val < 0)
-                        ++incount;
-                }
-            }
-            fractions(i, j) = (float)incount / (float)sample_max;
-        }
-    }
-    
-}
 
-// Compute the cell, node, uv face weights on the regular grid.
-void FluidQuadTree::compute_reg_grid_weights() {
-    compute_volume_fractions(liquid_phi, c_vol, Vec2f(-0.5, -0.5), 2);
-    compute_volume_fractions(liquid_phi, n_vol, Vec2f(-1, -1), 2);
-    compute_volume_fractions(liquid_phi, u_vol, Vec2f(-1, -0.5), 2);
-    compute_volume_fractions(liquid_phi, v_vol, Vec2f(-0.5, -1), 2);
-}
+
+
+
 
