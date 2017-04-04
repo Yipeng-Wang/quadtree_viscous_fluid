@@ -16,11 +16,11 @@
 using namespace std;
 
 //Try changing the grid resolution
-int grid_resolution = 20;
+int grid_resolution = 40;
 float timestep = 0.002;
 
 //Display properties
-bool draw_grid = true;
+bool draw_grid = false ;
 bool draw_particles = false;
 bool draw_velocities = false;
 bool draw_boundaries = true;
@@ -113,6 +113,7 @@ int main(int argc, char **argv) {
 //                || circle_phi(pt, Vec2f(0.8, 0.65), 0.15) > 0)) {
 //                sim.add_particle(pt);
 //            }
+            
             
             // filled half of the tank with fluid. Check if the signed distance is correct.
             if (boundary_phi(pt) > 0 && (pt[1] <= 0.3

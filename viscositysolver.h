@@ -52,7 +52,7 @@ class VisSolver {
     // Data used in the linear system solver.
     SpMat D;
     SpMat factor;
-    SpMat M_uv, M_t, vis;
+    SpMat M_uv, M_t, M_vis;
     Vecf rhs;
     SpMat vis_operator;
     Eigen::ConjugateGradient<SpMat> cg_solver;
@@ -60,10 +60,17 @@ class VisSolver {
     
     std::vector<Face> u_reg_faces;  // u faces on the regular grids.
     std::vector<Face> v_reg_faces;  // v faces on the regular grids.
+    
+    // Map i + ni *j to idx in u_reg_faces.
+    std::unordered_map<int, int> u_reg_idx_to_face;
+    
+    // Map i + ni * j to idx in v_reg_faces.
+    std::unordered_map<int, int> v_reg_idx_to_face;
+    
     Vecf reg_u;
     Vecf reg_v;
     Vecf reg_uv;
-    Vecf M_reg_uv;  // it stores the 1/control_vol of u's and v's.
+    Vecf M_reg_uv;                  // Control volumes of regular grids.
     
     std::vector<Face> u_tree_faces;  // u faces on the tree grids.
     std::vector<Face> v_tree_faces;  // v faces on the tree grids.
@@ -75,23 +82,23 @@ class VisSolver {
     
     // Link u's with faces.
     std::vector<int> u_to_face;
-    std::map<int, int> face_to_u;
+    std::unordered_map<int, int> face_to_u;
     
     // Link v's with faces.
-    std::map<int, int> face_to_v;
     std::vector<int> v_to_face;
+    std::unordered_map<int, int> face_to_v;
     
     // Link tau11's with grids.
     std::vector<int> tau11_to_cell;
-    std::map<int, int> grid_to_tau11;
+    std::unordered_map<int, int> grid_to_tau11;
     
     // Link tau22's with grids.
     std::vector<int> tau22_to_cell;
-    std::map<int, int> grid_to_tau22;
+    std::unordered_map<int, int> grid_to_tau22;
     
     // Link tau12's with nodes.
     std::vector<int> tau12_to_node;
-    std::map<int, int> node_to_tau12;
+    std::unordered_map<int, int> node_to_tau12;
     
 public:
     // VisSolver constructors

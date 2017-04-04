@@ -6,6 +6,7 @@
 //  Copyright © 2017 Yipeng Wang. All rights reserved.
 //
 
+#include <iostream>
 #include "util.h"
 #include "viscositysolver.h"
 
@@ -14,8 +15,7 @@ using namespace std;
 static void compute_volume_fractions(const Array2f& levelset, Array2f& fractions,
                                      Vec2f fraction_origin, int subdivision);
 
-static SpMat build_large_matrix(SpMat m1, SpMat m2);
-
+static SpMat build_large_diagnol(SpMat m1, SpMat m2);
 
 VisSolver::VisSolver(Array2f u_, Array2f v_, Array2f viscosity_, float width,
                      Array2f liquid_phi_, Array2f solid_phi_, float dt) :
@@ -25,7 +25,7 @@ tree(FluidQuadTree(width, liquid_phi_)) {
     ni = liquid_phi.ni;
     nj = liquid_phi.nj;
     dx = width / (float) ni;
-    EPSILON = 1E-2 * dx;
+    EPSILON = 1E-2 * sqr(dx);
     
     u_vol.resize(ni+1,nj);
     v_vol.resize(ni,nj+1);
@@ -41,60 +41,77 @@ void VisSolver::solve_viscosity(float dt) {
     
     get_grid_taus();
     get_node_taus();
+    
+    n_u = (int)u_to_face.size();
+    n_v = (int)v_to_face.size();
+    n_t11 = (int)tau11_to_cell.size();
+    n_t22 = (int)tau22_to_cell.size();
+    n_t12 = (int)tau12_to_node.size();
+    
+    //cout << n_u << " " << n_v << " " << n_t11 << " " << n_t22 << " " << n_t12 << endl;
+    
+    int n_uv = n_u + n_v;
+    int n_t = n_t11 + n_t22 + n_t12;
+    
+    // Generate the deformation operator.
+    D.resize(n_t, n_uv);
+    compute_deformation_operator();
+    D *= 0.5;
+    
+    // Compute factoring matrix.
+    factor.resize(n_t, n_t);
+    factor.reserve(n_t);
+    compute_factor_matrix();
+    
+    // Control volume matrices for uv's and
+    M_uv = SpMat(n_uv, n_uv);
+    M_t = SpMat(n_t, n_t);
+    M_vis = SpMat(n_t, n_t);
+    M_uv.reserve(n_uv);
+    M_t.reserve(n_t);
+    M_vis.reserve(n_t);
 
+    // TODO: also compute the vis matrix in this function.
+    compute_volume_matrices();
     
-    for (Face& u_f : u_reg_faces) {
-        cout << "i: " << u_f.i << " j: " << u_f.j << "\n";
+    vis_operator = -2 * D.transpose() * (factor * M_t) * D;
+    
+    SpMat sym_mat = M_uv - dt * vis_operator;
+    
+    rhs = Vecf(n_u + n_v);
+    compute_rhs();
+
+    // Solve the linear system using a conjugate gradient solver.
+    cg_solver.compute(sym_mat);
+    Vecf tree_uv = cg_solver.solve(rhs);
+    
+    // M multiply u reg.
+    Vecf Mu_reg = reg_uv.cwiseProduct(M_reg_uv) + (dt * H.transpose()
+                                                   * vis_operator * tree_uv);
+    
+    // This data used for uv's with zero control volumes.
+    Vecf fs_uv = H.transpose() * tree_uv;
+
+    for (int i = 0; i < n_u_reg; ++i) {
+        Face& u_f = u_reg_faces[i];
+        
+        if (M_reg_uv[i] < EPSILON) {
+            u(u_f.i + 1, u_f.j) = fs_uv[i];
+        } else {
+            u(u_f.i + 1, u_f.j) = Mu_reg[i] / M_reg_uv[i];
+        }
     }
-    
-//    n_u = (int)u_to_face.size();
-//    n_v = (int)v_to_face.size();
-//    n_t11 = (int)tau11_to_cell.size();
-//    n_t22 = (int)tau22_to_cell.size();
-//    n_t12 = (int)tau12_to_node.size();
-//    
-//    int n_uv = n_u + n_v;
-//    int n_t = n_t11 + n_t22 + n_t12;
-//    
-//    // Generate the deformation operator.
-//    D.resize(n_t, n_uv);
-//    compute_deformation_operator();
-//    D *= 0.5;
-//    
-//    // Compute factoring matrix.
-//    factor = SpMat(n_t, n_t);
-//    compute_factor_matrix();
-//    
-//    // Control volume matrices for uv's and
-//    M_uv = SpMat(n_uv, n_uv);
-//    M_t = SpMat(n_t, n_t);
-//    vis = SpMat(n_t, n_t);
-//    
-//    // TODO: also compute the vis matrix in this function.
-//    compute_volume_matrices();
-//    
-//    vis_operator = -2 * D.transpose() * (factor * M_t) * D;
-//    
-//    SpMat sym_mat = M_uv - dt * vis_operator;
-//    
-//    rhs = Vecf(n_u + n_v);
-//    compute_rhs();
-//
-//    // Solve the linear system using a conjugate gradient solver.
-//    cg_solver.compute(sym_mat);
-//    Vecf tree_uv = cg_solver.solve(rhs);
-//    
-//    Vecf reg_uv_sol = reg_uv + (dt * H.transpose() * vis_operator * tree_uv).cwiseProduct(M_reg_uv);
-//    
-//    for (int i = 0; i < n_u_reg; ++i) {
-//        Face& u_f = u_reg_faces[i];
-//        u(u_f.i + 1, u_f.j) = reg_uv_sol[i];
-//    }
-//    
-//    for (int i = 0; i < n_v_reg; ++i) {
-//        Face& v_f = v_reg_faces[i];
-//        v(v_f.i, v_f.j + 1) = reg_uv_sol[n_u_reg + i];
-//    }
+
+    for (int i = 0; i < n_v_reg; ++i) {
+        Face& v_f = v_reg_faces[i];
+        int idx = n_u_reg + i;
+        
+        if (M_reg_uv[idx] < EPSILON) {
+            v(v_f.i, v_f.j + 1) = fs_uv[idx];
+        } else {
+            v(v_f.i, v_f.j + 1) = Mu_reg[idx] / M_reg_uv[idx];
+        }
+    }
 }
 
 // Compute the cell, node, uv face weights on the regular grid.
@@ -137,6 +154,7 @@ void VisSolver::get_velocities() {
     
     // Start checking which u, v faces should be used in the solver.
     for (int k = 0; k < tree.face_count; ++k) {
+        
         Face& f = tree.qt_faces[k];
         if (f.depth != tree.max_depth - 1) {
             if (f.position == LEFT || f.position == RIGHT) {
@@ -152,13 +170,10 @@ void VisSolver::get_velocities() {
         }
         
         int i = f.i, j = f.j;
-        if (f.position == RIGHT) {
-            i++;
-        }
-        if (f.position == TOP) {
-            j++;
-        }
+        
         if (f.position == RIGHT)  {
+            i++;
+            
             if (u_state(i, j) == SOLID) {
                 continue;
             }
@@ -173,6 +188,8 @@ void VisSolver::get_velocities() {
         }
         
         if (f.position == TOP) {
+            j++;
+            
             if (v_state(i, j) == SOLID) {
                 continue;
             }
@@ -186,70 +203,7 @@ void VisSolver::get_velocities() {
         }
         
     }
-    
     compute_trans_matrices();
-}
-
-// Get tau's at cell centres, e.g. tau11 and tau22.
-void VisSolver::get_grid_taus() {
-    for (int i = 0; i < tree.leaf_cell_count; ++i) {
-        Cell& c = tree.leaf_cells[i];
-        if (c.depth != tree.max_depth - 1) {
-            grid_to_tau11[i] = (int)tau11_to_cell.size();
-            tau11_to_cell.push_back(i);
-            
-            grid_to_tau22[i] = (int) tau22_to_cell.size();
-            tau22_to_cell.push_back(i);
-            continue;
-        }
-        
-        // The order of surrounding faces is (right, left, top, bottom).
-        int right_f_idx = tree.cell_to_face_map(i, 0);
-        int left_f_idx = tree.cell_to_face_map(i, 1);
-        
-        if (face_to_u.count(right_f_idx) || face_to_u.count(left_f_idx)) {
-            grid_to_tau11[i] = (int)tau11_to_cell.size();
-            tau11_to_cell.push_back(i);
-        }
-        
-        int top_f_idx = tree.cell_to_face_map(i, 2);
-        int bottom_f_idx = tree.cell_to_face_map(i, 3);
-        
-        if (face_to_v.count(top_f_idx) || face_to_v.count(bottom_f_idx)) {
-            grid_to_tau22[i] = (int)tau22_to_cell.size();
-            tau22_to_cell.push_back(i);
-        }
-    }
-}
-
-
-// Get tau's at grid nodes, e.g. tau12.
-void VisSolver::get_node_taus() {
-    for (int i = 0; i < tree.node_count; ++i) {
-        Node& n = tree.nodes[i];
-        int n_d = tree.get_level_dims(n.depth);
-        if ((n.i == 0 && n.position == SW)
-            || (n.i == n_d - 1 && n.position == NE)
-            || (n.j == 0 && n.position == SW)
-            || (n.j == n_d - 1 && n.position == NE)) {
-            continue;
-        }
-        
-        // The order of surrounding faces are (right, left, top, bottom)
-        // respective to the node.
-        int right_f_idx = tree.node_to_face_map[i][0];
-        int left_f_idx = tree.node_to_face_map[i][1];
-        int top_f_idx = tree.node_to_face_map[i][2];
-        int bottom_f_idx = tree.node_to_face_map[i][3];
-        
-        if (face_to_u.count(right_f_idx) > 0
-            || face_to_u.count(left_f_idx) > 0
-            || face_to_v.count(top_f_idx) > 0
-            || face_to_v.count(bottom_f_idx) > 0) {
-            node_to_tau12[i] = (int)tau12_to_node.size();
-            tau12_to_node.push_back(i);
-        }
-    }
 }
 
 
@@ -262,11 +216,16 @@ void VisSolver::compute_trans_matrices() {
     for (int i = 0; i < u_tree_faces.size(); ++i) {
         Face& f = u_tree_faces[i];
         if (f.depth == tree.max_depth-1) {
+            H_u.insert(i, (int)u_reg_faces.size()) = 1;
             u_reg_faces.push_back(f);
-            H_u.insert(i, (int)u_reg_faces.size()-1) = 1;
             continue;
         }
+        
         Cell c(f.depth, f.i, f.j);
+        
+        if (f.position == LEFT) {
+            c = Cell(f.depth, f.i - 1, f.j);
+        }
         
         Cell upper_c = tree.get_child(c, NE);
         Cell lower_c = tree.get_child(c, SE);
@@ -281,40 +240,42 @@ void VisSolver::compute_trans_matrices() {
         Face ur_f(upper_c.depth, upper_c.i+1, upper_c.j, RIGHT);
         Face lr_f(lower_c.depth, lower_c.i+1, lower_c.j, RIGHT);
         
+
+        
+        H_u.insert(i, (int)u_reg_faces.size()) = 0.125;
         u_reg_faces.push_back(ul_f);
-        H_u.insert(i, (int)u_reg_faces.size()-1) = 0.125;
         
+        H_u.insert(i, (int)u_reg_faces.size()) = 0.125;
         u_reg_faces.push_back(ll_f);
-        H_u.insert(i, (int)u_reg_faces.size()-1) = 0.125;
         
+        H_u.insert(i, (int)u_reg_faces.size()) = 0.25;
         u_reg_faces.push_back(um_f);
-        H_u.insert(i, (int)u_reg_faces.size()-1) = 0.25;
         
+        H_u.insert(i, (int)u_reg_faces.size()) = 0.25;
         u_reg_faces.push_back(lm_f);
-        H_u.insert(i, (int)u_reg_faces.size()-1) = 0.25;
         
+        H_u.insert(i, (int)u_reg_faces.size()) = 0.125;
         u_reg_faces.push_back(ll_f);
-        H_u.insert(i, (int)u_reg_faces.size()-1) = 0.125;
         
+        H_u.insert(i, (int)u_reg_faces.size()) = 0.125;
         u_reg_faces.push_back(lr_f);
-        H_u.insert(i, (int)u_reg_faces.size()-1) = 0.125;
         
     }
-    
     n_u_tree = (int)u_tree_faces.size();
     n_u_reg = (int)u_reg_faces.size();
-    H_u.resize(n_u_tree, n_u_reg);
     
+    H_u.conservativeResize(n_u_tree, n_u_reg);
     reg_u.resize(n_u_reg);
-    for (int i = 0; i < reg_u.size(); ++i) {
+    
+    for (int i = 0; i < n_u_reg; ++i) {
         Face& f = u_reg_faces[i];
         reg_u[i] = u(f.i + 1, f.j);
     }
     tree_u = H_u * reg_u;
     
-    
     // Set up the matrix H_v transforming v's on regular grids to tree grids.
     H_v = SpMat((int)v_tree_faces.size(), ni * (nj+1));
+    
     for (int i = 0; i < v_tree_faces.size(); ++i) {
         Face& f = v_tree_faces[i];
         if (f.depth == tree.max_depth-1) {
@@ -324,9 +285,12 @@ void VisSolver::compute_trans_matrices() {
         }
         Cell c(f.depth, f.i, f.j);
         
+        if (f.position == BOTTOM) {
+            c = Cell(f.depth, f.i, f.j - 1);
+        }
+        
         Cell left_c = tree.get_child(c, NW);
         Cell right_c = tree.get_child(c, NE);
-        
         
         Face ul_f(left_c.depth, left_c.i, left_c.j+1, TOP);
         Face ur_f(right_c.depth, right_c.i, right_c.j+1, TOP);
@@ -359,7 +323,8 @@ void VisSolver::compute_trans_matrices() {
     
     n_v_tree = (int)v_tree_faces.size();
     n_v_reg = (int)v_reg_faces.size();
-    H_v.resize(n_v_tree, n_v_reg);
+    
+    H_v.conservativeResize(n_v_tree, n_v_reg);
     reg_v.resize(n_v_reg);
     
     for (int i = 0; i < n_v_reg; ++i) {
@@ -376,26 +341,80 @@ void VisSolver::compute_trans_matrices() {
     
     for (int i = 0; i < n_u_reg; ++i) {
         Face& u_f = u_reg_faces[i];
-        M_reg_uv[i] = 1.f / (u_vol(u_f.i + 1, u_f.j) * sqr(dx));
+        M_reg_uv[i] = u_vol(u_f.i + 1, u_f.j) * sqr(dx);
     }
+    
     for (int i = 0; i < n_v_reg; ++i) {
         Face& v_f = v_reg_faces[i];
-        M_reg_uv[i + n_u_reg] = 1.f / (v_vol(v_f.i, v_f.j + 1)
-                                                  * sqr(dx));
+        M_reg_uv[i + n_u_reg] = v_vol(v_f.i, v_f.j + 1) * sqr(dx);
     }
     
-    SpMat H_u_tmp(n_u_tree, n_u_reg + n_v_reg);
-    SpMat H_v_tmp(n_v_tree, n_u_reg + n_v_reg);
-    H_u_tmp.leftCols(n_u_reg) = H_u;
-    H_v_tmp.rightCols(n_v_reg) = H_v;
-    
-    H = build_large_matrix(H_u_tmp, H_v_tmp);
+    H = build_large_diagnol(H_u, H_v);
+}
+
+// Get tau's at cell centres, e.g. tau11 and tau22.
+void VisSolver::get_grid_taus() {
+    for (int i = 0; i < tree.leaf_cell_count; ++i) {
+        Cell& c = tree.leaf_cells[i];
+        if (c.depth != tree.max_depth - 1) {
+            grid_to_tau11[i] = (int)tau11_to_cell.size();
+            tau11_to_cell.push_back(i);
+            
+            grid_to_tau22[i] = (int) tau22_to_cell.size();
+            tau22_to_cell.push_back(i);
+            continue;
+        }
+        
+        // The order of surrounding faces is (right, left, top, bottom).
+        int right_f_idx = tree.cell_to_face_map(i, 0);
+        int left_f_idx = tree.cell_to_face_map(i, 1);
+        
+        if (c_vol(c.i, c.j) > EPSILON && (face_to_u.count(right_f_idx)
+                                          || face_to_u.count(left_f_idx))) {
+            grid_to_tau11[i] = (int)tau11_to_cell.size();
+            tau11_to_cell.push_back(i);
+        }
+        
+        int top_f_idx = tree.cell_to_face_map(i, 2);
+        int bottom_f_idx = tree.cell_to_face_map(i, 3);
+        
+        if (c_vol(c.i, c.j) > EPSILON && (face_to_v.count(top_f_idx)
+                                          || face_to_v.count(bottom_f_idx))) {
+            grid_to_tau22[i] = (int)tau22_to_cell.size();
+            tau22_to_cell.push_back(i);
+        }
+    }
+}
+
+
+// Get tau's at grid nodes, e.g. tau12.
+void VisSolver::get_node_taus() {
+    for (int i = 0; i < tree.node_count; ++i) {
+        Node& n = tree.nodes[i];
+        int n_d = tree.get_level_dims(n.depth);
+        if ((n.i == 0 && n.position == SW)
+            || (n.i == n_d - 1 && n.position == NE)
+            || (n.j == 0 && n.position == SW)
+            || (n.j == n_d - 1 && n.position == NE)) {
+            continue;
+        }
+        
+        if (n.depth != tree.max_depth - 1) {
+            node_to_tau12[i] = (int)tau12_to_node.size();
+            tau12_to_node.push_back(i);
+            continue;
+        }
+        
+        if (n_vol(n.i + 1, n.j + 1) > EPSILON) {
+            node_to_tau12[i] = (int)tau12_to_node.size();
+            tau12_to_node.push_back(i);
+        }
+    }
 }
 
 void VisSolver::compute_deformation_operator() {
     // Set matrix for the velocity of t11.
     for (int i = 0; i < n_t11; ++i) {
-        //std::cout << "Cell NO: " << i << "\n";
         
         int idx = i;
         int c_idx = tau11_to_cell[i];
@@ -477,7 +496,7 @@ void VisSolver::compute_deformation_operator() {
         // If there is a T junction and above cell is larger.
         if (top_f_idx == -1) {
             // Right face to the node, which is also the large face.
-            int large_f_idx = neighbor_faces[0];
+            int large_f_idx = right_f_idx;
             // Large cell at the T junction.
             int large_c_idx = tree.face_to_cell_map[large_f_idx].first[0];
             Cell& large_c = tree.leaf_cells[large_c_idx];
@@ -521,7 +540,7 @@ void VisSolver::compute_deformation_operator() {
         // If there is a T junction and below cell is larger.
         } else if (bottom_f_idx == -1) {
             // Right face to the node.
-            int large_f_idx = neighbor_faces[0];
+            int large_f_idx = right_f_idx;
             int large_c_idx = tree.face_to_cell_map[large_f_idx].second[0];
             Cell& large_c = tree.leaf_cells[large_c_idx];
             
@@ -561,7 +580,7 @@ void VisSolver::compute_deformation_operator() {
         // If there is a T junction and left cell is larger.
         } else if (left_f_idx == -1) {
             // Top face to the node, which is also the large face.
-            int large_f_idx = neighbor_faces[2];
+            int large_f_idx = top_f_idx;
             int large_c_idx = tree.face_to_cell_map[large_f_idx].second[0];
             Cell& large_c = tree.leaf_cells[large_c_idx];
             
@@ -571,7 +590,6 @@ void VisSolver::compute_deformation_operator() {
             int left_top_v_f_idx = tree.cell_to_face_map(large_c_idx, 2);
             int left_bottom_v_f_idx = tree.cell_to_face_map(large_c_idx, 3);
             
-            // Ensure the v faces are not on the boundary.
             D.insert(idx, n_u + face_to_v[left_top_v_f_idx]) = 0.5 * (1 / dx_v);
             
             D.insert(idx, n_u + face_to_v[left_bottom_v_f_idx]) = 0.5 * (1 / dx_v);
@@ -585,10 +603,10 @@ void VisSolver::compute_deformation_operator() {
             int bottom_u_f_idx = -1, top_u_f_idx = -1;
             
             Cell above_leaf_c = tree.get_leaf_cell(above_to_large_c, SE);
-            int above_leaf_c_idx = tree.get_cell_index(above_to_large_c);
+            int above_leaf_c_idx = tree.get_cell_index(above_leaf_c);
             dx_above += 0.5 * tree.get_cell_width(above_leaf_c.depth);
-            top_u_f_idx = tree.cell_to_face_map(above_leaf_c_idx, 0);
             
+            top_u_f_idx = tree.cell_to_face_map(above_leaf_c_idx, 0);
             
             Cell below_leaf_c = tree.get_leaf_cell(below_to_large_c, NE);
             int below_leaf_cell_idx = tree.get_cell_index(below_leaf_c);
@@ -679,7 +697,7 @@ void VisSolver::compute_factor_matrix() {
     for (int i = 0; i < n_t11 + n_t22; ++i) {
         factor.insert(i, i) = 1;
     }
-    
+
     for (int i = 0; i < n_t12; ++i) {
         int idx = n_t11 + n_t22 + i;
         factor.insert(idx, idx) = 2;
@@ -779,7 +797,7 @@ void VisSolver::compute_volume_matrices() {
             area = min(dx1, dx2) * (dx1 + dx2) * 0.5;
             
         } else {
-            //cout << "\n";
+
             Cell& top_right_c = tree.leaf_cells[tree.face_to_cell_map[top_f_idx].first[0]];
             if (tree.face_to_cell_map[top_f_idx].first.size() == 2) {
                 top_right_c = tree.leaf_cells[tree.face_to_cell_map[top_f_idx].first[1]];
@@ -866,18 +884,25 @@ static void compute_volume_fractions(const Array2f& levelset, Array2f& fractions
     }
 }
 
-// Build one large matrix by merging two small matrices.
-static SpMat build_large_matrix(SpMat m1, SpMat m2) {
-    SpMat m(m1.rows() + m2.rows(), m1.cols());
+// Build one large matrix by adding m1 to its upper left corner and m2 to its
+// lower right corner.
+static SpMat build_large_diagnol(SpMat m1, SpMat m2) {
+    SpMat m(m1.rows() + m2.rows(), m1.cols() + m2.cols());
     m.reserve(m1.nonZeros() + m2.nonZeros());
-    for(int c = 0; c < m1.cols(); ++c) {
-        for(SpMat::InnerIterator it1(m1, c); it1; ++it1) {
-            m.insertBack(it1.row(), c) = it1.value();
+    
+    for (int k = 0; k < m1.outerSize(); ++k) {
+        for (SpMat::InnerIterator it(m1,k); it; ++it) {
+            m.insert(it.row(), it.col()) = it.value();
         }
-        for(SpMat::InnerIterator it2(m2, c); it2; ++it2)
-            m.insertBack(it2.row(), c) = it2.value();
     }
-    m.finalize();
+    
+    int n_rows = (int)m1.rows(), n_cols = (int)m1.cols();
+    
+    for (int k = 0; k < m2.outerSize(); ++k) {
+        for (SpMat::InnerIterator it(m2,k); it; ++it) {
+            m.insert(it.row() + n_rows, it.col() + n_cols) = it.value();
+        }
+    }
     return m;
 }
 

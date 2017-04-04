@@ -3,6 +3,9 @@
 #include "array2_utils.h"
 #include "fluidsim.h"
 
+
+using namespace std;
+
 float fraction_inside(float phi_left, float phi_right);
 void extrapolate(Array2f& grid, Array2c& valid);
 
@@ -487,6 +490,7 @@ void FluidSim::apply_viscosity(float dt) {
 }
 
 void FluidSim::apply_viscosity_quadtree(float dt) {
+    
     VisSolver vis_solver(u, v, viscosity, width, liquid_phi, nodal_solid_phi, dt);
     u = vis_solver.u;
     v = vis_solver.v;

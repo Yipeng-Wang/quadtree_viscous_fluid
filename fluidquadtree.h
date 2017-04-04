@@ -132,14 +132,18 @@ struct FluidQuadTree {
 	// The order of faces is (right, left, top, bottom). The dimension
     // of the map is n_cell * 4;
     Array2i cell_to_face_map;
+    
     // The order of nodes is (SW, SE, NW, NE). The dimension
     // of the map is n_cell * 4;
     Array2i cell_to_node_map;
-	// The order of faces is (right, left, top, bottom). 
+	
+    // The order of faces is (right, left, top, bottom).
 	// If a face doesn't exist(T junction), then it is stored as -1.
 	std::vector<std::vector<int>> node_to_face_map;
-	// The order of nodes is (right, left) or (top, bottom).
+	
+    // The order of nodes is (right, left) or (top, bottom).
 	std::unordered_map<int, Vec2i> face_to_node_map;
+    
 	// The order of cells is (right, left) or (top, bottom).
     // For a T junction face, the cells on each side are also
     // in the preceding order.
