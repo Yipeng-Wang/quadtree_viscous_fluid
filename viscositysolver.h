@@ -30,6 +30,7 @@ class VisSolver {
     void compute_deformation_operator();
     void compute_factor_matrix();
     void compute_volume_matrices();
+    void compute_tau_vis();
     void compute_rhs();
     
     void solve_viscosity(float dt);
@@ -52,11 +53,11 @@ class VisSolver {
     // Data used in the linear system solver.
     SpMat D;
     SpMat factor;
-    SpMat M_uv, M_t, M_vis;
+    SpMat M_uv, M_t;
+    SpMat M_vis;
     Vecf rhs;
     SpMat vis_operator;
-    Eigen::ConjugateGradient<SpMat> cg_solver;
-    
+    Eigen::ConjugateGradient<SpMat, Eigen::Lower|Eigen::Upper> cg_solver;
     
     std::vector<Face> u_reg_faces;  // u faces on the regular grids.
     std::vector<Face> v_reg_faces;  // v faces on the regular grids.

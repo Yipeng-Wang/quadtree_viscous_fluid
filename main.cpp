@@ -16,7 +16,7 @@
 using namespace std;
 
 //Try changing the grid resolution
-int grid_resolution = 40;
+int grid_resolution = 100;
 float timestep = 0.002;
 
 //Display properties
@@ -107,19 +107,19 @@ int main(int argc, char **argv) {
             float y = randhashf(++offset, 0,1);
             Vec2f pt(x,y);
             
-//            //add a column (for buckling) and a beam (for bending) and a disk (for rolling and flowing)
-//            if (boundary_phi(pt) > 0 && ((pt[0] > 0.42 && pt[0] < 0.46)
-//                || (pt[0] < 0.36 && pt[1] > 0.45 && pt[1] < 0.5)
-//                || circle_phi(pt, Vec2f(0.8, 0.65), 0.15) > 0)) {
-//                sim.add_particle(pt);
-//            }
-            
-            
-            // filled half of the tank with fluid. Check if the signed distance is correct.
-            if (boundary_phi(pt) > 0 && (pt[1] <= 0.3
-                                         || (pt[0] < 0.3 && pt[1] <= 0.75))) {
+            //add a column (for buckling) and a beam (for bending) and a disk (for rolling and flowing)
+            if (boundary_phi(pt) > 0 && ((pt[0] > 0.42 && pt[0] < 0.46)
+                || (pt[0] < 0.36 && pt[1] > 0.45 && pt[1] < 0.5)
+                || circle_phi(pt, Vec2f(0.8, 0.65), 0.15) > 0)) {
                 sim.add_particle(pt);
             }
+            
+            
+//            // filled half of the tank with fluid. Check if the signed distance is correct.
+//            if (boundary_phi(pt) > 0 && (pt[1] <= 0.3
+//                                         || (pt[0] < 0.3 && pt[1] <= 0.75))) {
+//                sim.add_particle(pt);
+//            }
             
         }
     }

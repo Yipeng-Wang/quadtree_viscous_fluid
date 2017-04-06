@@ -11,9 +11,10 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(wi
     dx = width / (float) ni;
     
     // Test on regular grid.
-    max_depth = 1;
+    //max_depth = 1;
     
-    //max_depth = 2;
+    // Test 2 level tree.
+    max_depth = 2;
     
     cell_markers.resize(max_depth);
     cellInds.resize(max_depth);
@@ -32,33 +33,33 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(wi
     // Generate quad-tree, this only works for 2 level trees.
     // TODO: generalize into multi-level tree, a graded method is also required in this case.
     
-//    int depth = max_depth - 2;
-//    
-//    float threshold = -2.5 * dx;
-//    
-//    ni_tmp = get_level_dims(depth);
-//    for (int i = 0; i < ni_tmp; ++i) for (int j = 0; j < ni_tmp; ++j) {
-//        
-//        float phi = 0;
-//        int i_ind = 2 * i;
-//        int j_ind = 2 * j;
-//        for (int offi = 0; offi < 2; ++offi) {
-//            for (int offj = 0; offj < 2; ++offj) {
-//                phi += liquid_phi(i_ind + offi, j_ind + offj);
-//            }
-//        }
-//        phi *= 0.25f;
-//        
-//        if (phi > threshold) {
-//            continue;
-//        }
-//        
-//        for (int offi = 0; offi < 2; ++offi) {
-//            for (int offj = 0; offj < 2; ++offj) {
-//                cell_markers[depth + 1](i_ind + offi, j_ind + offj) = 0;
-//            }
-//        }
-//    }
+    int depth = max_depth - 2;
+    
+    float threshold = -2.5 * dx;
+    
+    ni_tmp = get_level_dims(depth);
+    for (int i = 0; i < ni_tmp; ++i) for (int j = 0; j < ni_tmp; ++j) {
+        
+        float phi = 0;
+        int i_ind = 2 * i;
+        int j_ind = 2 * j;
+        for (int offi = 0; offi < 2; ++offi) {
+            for (int offj = 0; offj < 2; ++offj) {
+                phi += liquid_phi(i_ind + offi, j_ind + offj);
+            }
+        }
+        phi *= 0.25f;
+        
+        if (phi > threshold) {
+            continue;
+        }
+        
+        for (int offi = 0; offi < 2; ++offi) {
+            for (int offj = 0; offj < 2; ++offj) {
+                cell_markers[depth + 1](i_ind + offi, j_ind + offj) = 0;
+            }
+        }
+    }
     reindex();
 }
 

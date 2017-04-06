@@ -66,7 +66,6 @@ float FluidSim::cfl() {
 //The main fluid simulation step
 void FluidSim::advance(float dt) {
     float t = 0;
-    
     while (t < dt) {
         // substep is a new time step.
         float substep = cfl();
@@ -100,7 +99,9 @@ void FluidSim::advance(float dt) {
         constrain_velocity();
         
         t += substep;
+        
     }
+
 }
 
 void FluidSim::add_force(float dt) {

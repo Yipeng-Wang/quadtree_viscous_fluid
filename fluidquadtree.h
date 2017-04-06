@@ -83,7 +83,9 @@ struct Node {
 };
 
 // Define a quadtree structure and its functions. 
-struct FluidQuadTree {
+class FluidQuadTree {
+
+public:
     
     // FluidQuadTree constructor.
     FluidQuadTree(float width, Array2f liquid_phi_);

@@ -6,7 +6,6 @@
 //  Copyright © 2017 Yipeng Wang. All rights reserved.
 //
 
-#include <iostream>
 #include "util.h"
 #include "viscositysolver.h"
 
@@ -19,12 +18,14 @@ static SpMat build_large_diagnol(SpMat m1, SpMat m2);
 
 VisSolver::VisSolver(Array2f u_, Array2f v_, Array2f viscosity_, float width,
                      Array2f liquid_phi_, Array2f solid_phi_, float dt) :
-u(u_), v(v_), viscosity(viscosity_), liquid_phi(liquid_phi_), solid_phi(solid_phi_),
-tree(FluidQuadTree(width, liquid_phi_)) {
+u(u_), v(v_), viscosity(viscosity_), liquid_phi(liquid_phi_),
+solid_phi(solid_phi_), tree(FluidQuadTree(width, liquid_phi_)) {
     
     ni = liquid_phi.ni;
     nj = liquid_phi.nj;
     dx = width / (float) ni;
+    
+    
     EPSILON = 1E-2 * sqr(dx);
     
     u_vol.resize(ni+1,nj);
@@ -38,7 +39,6 @@ tree(FluidQuadTree(width, liquid_phi_)) {
 void VisSolver::solve_viscosity(float dt) {
     compute_reg_grid_weights();
     get_velocities();
-    
     get_grid_taus();
     get_node_taus();
     
@@ -48,15 +48,13 @@ void VisSolver::solve_viscosity(float dt) {
     n_t22 = (int)tau22_to_cell.size();
     n_t12 = (int)tau12_to_node.size();
     
-    //cout << n_u << " " << n_v << " " << n_t11 << " " << n_t22 << " " << n_t12 << endl;
-    
     int n_uv = n_u + n_v;
     int n_t = n_t11 + n_t22 + n_t12;
     
     // Generate the deformation operator.
     D.resize(n_t, n_uv);
     compute_deformation_operator();
-    D *= 0.5;
+    D = 0.5 * D;
     
     // Compute factoring matrix.
     factor.resize(n_t, n_t);
@@ -66,25 +64,29 @@ void VisSolver::solve_viscosity(float dt) {
     // Control volume matrices for uv's and
     M_uv = SpMat(n_uv, n_uv);
     M_t = SpMat(n_t, n_t);
-    M_vis = SpMat(n_t, n_t);
     M_uv.reserve(n_uv);
     M_t.reserve(n_t);
-    M_vis.reserve(n_t);
 
-    // TODO: also compute the vis matrix in this function.
     compute_volume_matrices();
     
-    vis_operator = -2 * D.transpose() * (factor * M_t) * D;
+    M_vis = SpMat(n_t, n_t);
+    M_vis.reserve(n_t);
+    
+    compute_tau_vis();
+    
+    vis_operator = -2 * D.transpose() * (factor * M_vis * M_t) * D;
     
     SpMat sym_mat = M_uv - dt * vis_operator;
     
-    rhs = Vecf(n_u + n_v);
+    rhs.resize(n_u + n_v);
     compute_rhs();
 
     // Solve the linear system using a conjugate gradient solver.
     cg_solver.compute(sym_mat);
     Vecf tree_uv = cg_solver.solve(rhs);
-    
+    cout << "#iterations:     " << cg_solver.iterations() << endl;
+    cout << "estimated error: " << cg_solver.error()      << endl;
+
     // M multiply u reg.
     Vecf Mu_reg = reg_uv.cwiseProduct(M_reg_uv) + (dt * H.transpose()
                                                    * vis_operator * tree_uv);
@@ -112,6 +114,7 @@ void VisSolver::solve_viscosity(float dt) {
             v(v_f.i, v_f.j + 1) = Mu_reg[idx] / M_reg_uv[idx];
         }
     }
+    
 }
 
 // Compute the cell, node, uv face weights on the regular grid.
@@ -201,7 +204,6 @@ void VisSolver::get_velocities() {
                 v_to_face.push_back(k);
             }
         }
-        
     }
     compute_trans_matrices();
 }
@@ -212,12 +214,19 @@ void VisSolver::get_velocities() {
 void VisSolver::compute_trans_matrices() {
     
     // Set up the matrix H_u transforming u's on regular grids to tree grids.
-    H_u = SpMat((int)u_tree_faces.size(), (ni+1) * nj);
-    for (int i = 0; i < u_tree_faces.size(); ++i) {
+    n_u_tree = (int)u_tree_faces.size();
+
+    H_u = SpMat(n_u_tree, ni * nj);
+    for (int i = 0; i < n_u_tree; ++i) {
         Face& f = u_tree_faces[i];
+        int idx = f.i + ni * f.j;
+        
         if (f.depth == tree.max_depth-1) {
-            H_u.insert(i, (int)u_reg_faces.size()) = 1;
-            u_reg_faces.push_back(f);
+            if (!u_reg_idx_to_face.count(idx)) {
+                u_reg_idx_to_face[idx] = (int)u_reg_faces.size();
+                u_reg_faces.push_back(f);
+            }
+            H_u.insert(i, u_reg_idx_to_face[idx]) = 1;
             continue;
         }
         
@@ -241,29 +250,56 @@ void VisSolver::compute_trans_matrices() {
         Face lr_f(lower_c.depth, lower_c.i+1, lower_c.j, RIGHT);
         
 
+        idx = ul_f.i + ni * ul_f.j;
+        if (!u_reg_idx_to_face.count(idx)) {
+            u_reg_idx_to_face[idx] = (int)u_reg_faces.size();
+            u_reg_faces.push_back(ul_f);
+        }
+        H_u.insert(i, u_reg_idx_to_face[idx]) = 0.125;
         
-        H_u.insert(i, (int)u_reg_faces.size()) = 0.125;
-        u_reg_faces.push_back(ul_f);
         
-        H_u.insert(i, (int)u_reg_faces.size()) = 0.125;
-        u_reg_faces.push_back(ll_f);
+        idx = ll_f.i + ni * ll_f.j;
+        if (!u_reg_idx_to_face.count(idx)) {
+            u_reg_idx_to_face[idx] = (int)u_reg_faces.size();
+            u_reg_faces.push_back(ll_f);
+        }
+        H_u.insert(i, u_reg_idx_to_face[idx]) = 0.125;
         
-        H_u.insert(i, (int)u_reg_faces.size()) = 0.25;
-        u_reg_faces.push_back(um_f);
         
-        H_u.insert(i, (int)u_reg_faces.size()) = 0.25;
-        u_reg_faces.push_back(lm_f);
+        idx = um_f.i + ni * um_f.j;
+        if (!u_reg_idx_to_face.count(idx)) {
+            u_reg_idx_to_face[idx] = (int)u_reg_faces.size();
+            u_reg_faces.push_back(um_f);
+        }
+        H_u.insert(i, u_reg_idx_to_face[idx]) = 0.25;
+
         
-        H_u.insert(i, (int)u_reg_faces.size()) = 0.125;
-        u_reg_faces.push_back(ll_f);
+        idx = lm_f.i + ni * lm_f.j;
+        if (!u_reg_idx_to_face.count(idx)) {
+            u_reg_idx_to_face[idx] = (int)u_reg_faces.size();
+            u_reg_faces.push_back(lm_f);
+        }
+        H_u.insert(i, u_reg_idx_to_face[idx]) = 0.25;
         
-        H_u.insert(i, (int)u_reg_faces.size()) = 0.125;
-        u_reg_faces.push_back(lr_f);
+        
+        idx = ur_f.i + ni * ur_f.j;
+        if (!u_reg_idx_to_face.count(idx)) {
+            u_reg_idx_to_face[idx] = (int)u_reg_faces.size();
+            u_reg_faces.push_back(ur_f);
+        }
+        H_u.insert(i, u_reg_idx_to_face[idx]) = 0.125;
+
+    
+        idx = lr_f.i + ni * lr_f.j;
+        if (!u_reg_idx_to_face.count(idx)) {
+            u_reg_idx_to_face[idx] = (int)u_reg_faces.size();
+            u_reg_faces.push_back(lr_f);
+        }
+        H_u.insert(i, u_reg_idx_to_face[idx]) = 0.125;
         
     }
-    n_u_tree = (int)u_tree_faces.size();
-    n_u_reg = (int)u_reg_faces.size();
     
+    n_u_reg = (int)u_reg_faces.size();
     H_u.conservativeResize(n_u_tree, n_u_reg);
     reg_u.resize(n_u_reg);
     
@@ -274,15 +310,22 @@ void VisSolver::compute_trans_matrices() {
     tree_u = H_u * reg_u;
     
     // Set up the matrix H_v transforming v's on regular grids to tree grids.
-    H_v = SpMat((int)v_tree_faces.size(), ni * (nj+1));
-    
-    for (int i = 0; i < v_tree_faces.size(); ++i) {
+    n_v_tree = (int)v_tree_faces.size();
+
+    H_v = SpMat(n_v_tree, ni * nj);
+    for (int i = 0; i < n_v_tree; ++i) {
         Face& f = v_tree_faces[i];
+        int idx = f.i + ni * f.j;
+
         if (f.depth == tree.max_depth-1) {
-            v_reg_faces.push_back(f);
-            H_v.insert(i, (int)v_reg_faces.size()-1) = 1;
+            if (!v_reg_idx_to_face.count(idx)) {
+                v_reg_idx_to_face[idx] = (int)v_reg_faces.size();
+                v_reg_faces.push_back(f);
+            }
+            H_v.insert(i, v_reg_idx_to_face[idx]) = 1;
             continue;
         }
+        
         Cell c(f.depth, f.i, f.j);
         
         if (f.position == BOTTOM) {
@@ -301,29 +344,56 @@ void VisSolver::compute_trans_matrices() {
         Face ll_f(left_c.depth, left_c.i, left_c.j-1, TOP);
         Face lr_f(right_c.depth, right_c.i, right_c.j-1, TOP);
         
-        v_reg_faces.push_back(ul_f);
-        H_v.insert(i, (int)v_reg_faces.size()-1) = 0.125;
+        idx = ul_f.i + ni * ul_f.j;
+        if (!v_reg_idx_to_face.count(idx)) {
+            v_reg_idx_to_face[idx] = (int)v_reg_faces.size();
+            v_reg_faces.push_back(ul_f);
+        }
+        H_v.insert(i, v_reg_idx_to_face[idx]) = 0.125;
         
-        v_reg_faces.push_back(ur_f);
-        H_v.insert(i, (int)v_reg_faces.size()-1) = 0.125;
         
-        v_reg_faces.push_back(ml_f);
-        H_v.insert(i, (int)v_reg_faces.size()-1) = 0.25;
+        idx = ur_f.i + ni * ur_f.j;
+        if (!v_reg_idx_to_face.count(idx)) {
+            v_reg_idx_to_face[idx] = (int)v_reg_faces.size();
+            v_reg_faces.push_back(ur_f);
+        }
+        H_v.insert(i, v_reg_idx_to_face[idx]) = 0.125;
+
         
-        v_reg_faces.push_back(mr_f);
-        H_v.insert(i, (int)v_reg_faces.size()-1) = 0.25;
+        idx = ml_f.i + ni * ml_f.j;
+        if (!v_reg_idx_to_face.count(idx)) {
+            v_reg_idx_to_face[idx] = (int)v_reg_faces.size();
+            v_reg_faces.push_back(ml_f);
+        }
+        H_v.insert(i, v_reg_idx_to_face[idx]) = 0.25;
         
-        v_reg_faces.push_back(ll_f);
-        H_v.insert(i, (int)v_reg_faces.size()-1) = 0.125;
         
-        v_reg_faces.push_back(lr_f);
-        H_v.insert(i, (int)v_reg_faces.size()-1) = 0.125;
+        idx = mr_f.i + ni * mr_f.j;
+        if (!v_reg_idx_to_face.count(idx)) {
+            v_reg_idx_to_face[idx] = (int)v_reg_faces.size();
+            v_reg_faces.push_back(mr_f);
+        }
+        H_v.insert(i, v_reg_idx_to_face[idx]) = 0.25;
+        
+        
+        idx = ll_f.i + ni * ll_f.j;
+        if (!v_reg_idx_to_face.count(idx)) {
+            v_reg_idx_to_face[idx] = (int)v_reg_faces.size();
+            v_reg_faces.push_back(ll_f);
+        }
+        H_v.insert(i, v_reg_idx_to_face[idx]) = 0.125;
+        
+    
+        idx = lr_f.i + ni * lr_f.j;
+        if (!v_reg_idx_to_face.count(idx)) {
+            v_reg_idx_to_face[idx] = (int)v_reg_faces.size();
+            v_reg_faces.push_back(lr_f);
+        }
+        H_v.insert(i, v_reg_idx_to_face[idx]) = 0.125;
         
     }
     
-    n_v_tree = (int)v_tree_faces.size();
     n_v_reg = (int)v_reg_faces.size();
-    
     H_v.conservativeResize(n_v_tree, n_v_reg);
     reg_v.resize(n_v_reg);
     
@@ -391,6 +461,7 @@ void VisSolver::get_grid_taus() {
 void VisSolver::get_node_taus() {
     for (int i = 0; i < tree.node_count; ++i) {
         Node& n = tree.nodes[i];
+        
         int n_d = tree.get_level_dims(n.depth);
         if ((n.i == 0 && n.position == SW)
             || (n.i == n_d - 1 && n.position == NE)
@@ -399,13 +470,22 @@ void VisSolver::get_node_taus() {
             continue;
         }
         
-        if (n.depth != tree.max_depth - 1) {
+        if (n.depth != tree.max_depth - 1 || n.position != NE) {
             node_to_tau12[i] = (int)tau12_to_node.size();
             tau12_to_node.push_back(i);
             continue;
         }
         
-        if (n_vol(n.i + 1, n.j + 1) > EPSILON) {
+        std::vector<int>& neighbor_faces = tree.node_to_face_map[i];
+        
+        int right_f_idx = neighbor_faces[0];
+        int left_f_idx = neighbor_faces[1];
+        int top_f_idx = neighbor_faces[2];
+        int bottom_f_idx = neighbor_faces[3];
+        
+        if (n_vol(n.i + 1, n.j + 1) > EPSILON && (face_to_u.count(top_f_idx)
+            || face_to_u.count(bottom_f_idx) || face_to_v.count(right_f_idx)
+            || face_to_v.count(left_f_idx))) {
             node_to_tau12[i] = (int)tau12_to_node.size();
             tau12_to_node.push_back(i);
         }
@@ -486,7 +566,7 @@ void VisSolver::compute_deformation_operator() {
         
         // The order of faces are (right, left, top, bottom) respective to the
         // node.
-        std::vector<int> neighbor_faces = tree.node_to_face_map[n_idx];
+        std::vector<int>& neighbor_faces = tree.node_to_face_map[n_idx];
         
         int right_f_idx = neighbor_faces[0];
         int left_f_idx = neighbor_faces[1];
@@ -670,6 +750,7 @@ void VisSolver::compute_deformation_operator() {
             if (face_to_v.count(right_f_idx)) {
                 D.insert(idx, n_u + face_to_v[right_f_idx]) = -1 / dx_v;
             }
+            
             if (face_to_v.count(left_f_idx)) {
                 D.insert(idx, n_u + face_to_v[left_f_idx]) = 1 / dx_v;
             }
@@ -694,6 +775,7 @@ void VisSolver::compute_deformation_operator() {
 }
 
 void VisSolver::compute_factor_matrix() {
+    
     for (int i = 0; i < n_t11 + n_t22; ++i) {
         factor.insert(i, i) = 1;
     }
@@ -705,6 +787,8 @@ void VisSolver::compute_factor_matrix() {
 }
 
 void VisSolver::compute_volume_matrices() {
+    
+    // Compute control volumes of u's and v's.
     for (int i = 0; i < n_u; ++i) {
         Face& f = tree.qt_faces[u_to_face[i]];
         if (f.depth == tree.max_depth - 1) {
@@ -737,8 +821,9 @@ void VisSolver::compute_volume_matrices() {
         }
     }
     
+    // Compute control volumes of taus.
     for (int i = 0; i < n_t11; ++i) {
-        Cell& c = tree.leaf_cells[i];
+        Cell& c = tree.leaf_cells[tau11_to_cell[i]];
         if (c.depth == tree.max_depth - 1) {
             M_t.insert(i, i) = c_vol(c.i, c.j) * sqr(dx);
         } else {
@@ -747,7 +832,7 @@ void VisSolver::compute_volume_matrices() {
     }
     
     for (int i = 0; i < n_t22; ++i) {
-        Cell& c = tree.leaf_cells[i];
+        Cell& c = tree.leaf_cells[tau22_to_cell[i]];
         if (c.depth == tree.max_depth - 1) {
             M_t.insert(n_t11 + i, n_t11 + i) = c_vol(c.i, c.j) * sqr(dx);
         } else {
@@ -756,7 +841,7 @@ void VisSolver::compute_volume_matrices() {
     }
     
     for (int i = 0; i < n_t12; ++i) {
-        Node& n = tree.nodes[i];
+        Node& n = tree.nodes[tau12_to_node[i]];
         float area = 0;
         std::vector<int> neighbor_faces = tree.node_to_face_map[i];
         
@@ -843,6 +928,24 @@ void VisSolver::compute_volume_matrices() {
             }
         }
         M_t.insert(n_t11 + n_t22 + i, n_t11 + n_t22 + i) = area;
+    }
+}
+
+void VisSolver::compute_tau_vis() {
+    for (int i = 0; i < n_t11; ++i) {
+        Cell& c = tree.leaf_cells[tau11_to_cell[i]];
+        M_vis.insert(i, i) = viscosity(c.i, c.j);
+    }
+    
+    for (int i = 0; i < n_t22; ++i) {
+        Cell& c = tree.leaf_cells[tau22_to_cell[i]];
+        M_vis.insert(n_t11 + i, n_t11 + i) = viscosity(c.i, c.j);
+    }
+    
+    for (int i = 0; i < n_t12; ++i) {
+        Node& n = tree.nodes[tau12_to_node[i]];
+        // Suppose the node is at the NE corner of the cell.
+        M_vis.insert(n_t11 + n_t22 + i, n_t11 + n_t22 + i) = 0.25 * (viscosity(n.i, n.j) + viscosity(n.i + 1, n.j) + viscosity(n.i, n.j + 1) + viscosity(n.i + 1, n.j + 1));
     }
 }
 
