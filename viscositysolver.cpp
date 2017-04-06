@@ -16,8 +16,10 @@ static void compute_volume_fractions(const Array2f& levelset, Array2f& fractions
 
 static SpMat build_large_diagnol(SpMat m1, SpMat m2);
 
+
+
 VisSolver::VisSolver(Array2f u_, Array2f v_, Array2f viscosity_, float width,
-                     Array2f liquid_phi_, Array2f solid_phi_, float dt) :
+                     Array2f liquid_phi_, Array2f solid_phi_) :
 u(u_), v(v_), viscosity(viscosity_), liquid_phi(liquid_phi_),
 solid_phi(solid_phi_), tree(FluidQuadTree(width, liquid_phi_)) {
     
@@ -33,11 +35,9 @@ solid_phi(solid_phi_), tree(FluidQuadTree(width, liquid_phi_)) {
     c_vol.resize(ni,nj);
     n_vol.resize(ni+1,nj+1);
     
-    solve_viscosity(dt);
 }
 
 void VisSolver::solve_viscosity(float dt) {
-    compute_reg_grid_weights();
     get_velocities();
     get_grid_taus();
     get_node_taus();
@@ -91,7 +91,7 @@ void VisSolver::solve_viscosity(float dt) {
     Vecf Mu_reg = reg_uv.cwiseProduct(M_reg_uv) + (dt * H.transpose()
                                                    * vis_operator * tree_uv);
     
-    // This data used for uv's with zero control volumes.
+    // This data only used to update uv's with zero control volumes.
     Vecf fs_uv = H.transpose() * tree_uv;
 
     for (int i = 0; i < n_u_reg; ++i) {
@@ -128,7 +128,8 @@ void VisSolver::compute_reg_grid_weights() {
 // Get actual u and v faces which the solver runs on, and store them in
 // u_tree_faces and v_tree_faces.
 void VisSolver::get_velocities() {
-    
+    compute_reg_grid_weights();
+
     Array2c u_state(ni + 1, nj, (const char&)0);
     Array2c v_state(ni, nj + 1, (const char&)0);
     const int SOLID = 1;
@@ -841,14 +842,16 @@ void VisSolver::compute_volume_matrices() {
     }
     
     for (int i = 0; i < n_t12; ++i) {
-        Node& n = tree.nodes[tau12_to_node[i]];
+        int node_idx = tau12_to_node[i];
+        Node& n = tree.nodes[node_idx];
         float area = 0;
-        std::vector<int> neighbor_faces = tree.node_to_face_map[i];
+        std::vector<int> neighbor_faces = tree.node_to_face_map[node_idx];
         
         int right_f_idx = neighbor_faces[0];
         int left_f_idx = neighbor_faces[1];
         int top_f_idx = neighbor_faces[2];
         int bottom_f_idx = neighbor_faces[3];
+
         float dx1 = 0;
         float dx2 = 0;
         
@@ -882,7 +885,6 @@ void VisSolver::compute_volume_matrices() {
             area = min(dx1, dx2) * (dx1 + dx2) * 0.5;
             
         } else {
-
             Cell& top_right_c = tree.leaf_cells[tree.face_to_cell_map[top_f_idx].first[0]];
             if (tree.face_to_cell_map[top_f_idx].first.size() == 2) {
                 top_right_c = tree.leaf_cells[tree.face_to_cell_map[top_f_idx].first[1]];
@@ -945,7 +947,9 @@ void VisSolver::compute_tau_vis() {
     for (int i = 0; i < n_t12; ++i) {
         Node& n = tree.nodes[tau12_to_node[i]];
         // Suppose the node is at the NE corner of the cell.
-        M_vis.insert(n_t11 + n_t22 + i, n_t11 + n_t22 + i) = 0.25 * (viscosity(n.i, n.j) + viscosity(n.i + 1, n.j) + viscosity(n.i, n.j + 1) + viscosity(n.i + 1, n.j + 1));
+        M_vis.insert(n_t11 + n_t22 + i, n_t11 + n_t22 + i) = 0.25
+                    * (viscosity(n.i, n.j) + viscosity(n.i + 1, n.j)
+                    + viscosity(n.i, n.j + 1) + viscosity(n.i + 1, n.j + 1));
     }
 }
 
@@ -957,6 +961,15 @@ void VisSolver::compute_rhs() {
         int idx = n_u + i;
         rhs[idx] = M_uv.coeff(idx, idx) * tree_v[i];
     }
+}
+
+// Getter functions for u and v faces on the quadtree.
+vector<Face> VisSolver::get_u_tree_faces() {
+    return u_tree_faces;
+}
+
+vector<Face> VisSolver::get_v_tree_faces() {
+    return v_tree_faces;
 }
 
 // Divide each control volume into several subdivision and count the actual

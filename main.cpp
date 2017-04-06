@@ -90,7 +90,7 @@ int main(int argc, char **argv) {
     glClearColor(1,1,1,1);
     
     // Run the simulation with time.
-    //glutTimerFunc(1000, timer, 0);
+    glutTimerFunc(1000, timer, 0);
     
     //Set up the simulation
     sim.initialize(grid_width, grid_resolution, grid_resolution);
@@ -124,7 +124,7 @@ int main(int argc, char **argv) {
         }
     }
     
-    sim.advance(timestep);
+    //sim.advance(timestep);
     
     Gluvi::run();
     return 0;
@@ -178,40 +178,36 @@ void display(void) {
         draw_segmentset2d(ls_draw.verts, ls_draw.edges);
     }
     
-//    if (draw_quadtree) {
-//        glColor3f(1,0,0);
-//        glLineWidth(0.1);
-//        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-//        VisSolver vsolver(grid_width, sim.liquid_phi, sim.nodal_solid_phi, timestep);
-//        
-//        Vec2f start(0., 0.);
-//        for (size_t i = 0; i < vsolver.u_faces.size(); ++i) {
-//            Face& f = vsolver.u_faces[i];
-//            float h = vsolver.tree.get_cell_width(f.depth);
-//            start = h * Vec2f((float)f.i, (float)f.j);
-//            
-//            draw_box2d(start, h, h);
-//            
-//            draw_box2d(start + Vec2f(h, 0.), h, h);
-//        }
-//        
-//        for (size_t i = 0; i < vsolver.v_faces.size(); ++i) {
-//            Face& f = vsolver.v_faces[i];
-//            float h = vsolver.tree.get_cell_width(f.depth);
-//            start = h * Vec2f((float)f.i, (float)f.j);
-//            
-//            draw_box2d(start, h, h);
-//            draw_box2d(start + Vec2f(0., h), h, h);
-//        }
-//        
-////        Vec2f start(0., 0.);
-////        for (size_t i = 0; i < tree.leaf_cells.size(); ++i) {
-////            Cell& c = tree.leaf_cells[i];
-////            float h = tree.get_cell_width(c.depth);
-////            start = h * Vec2f((float)c.i, (float)c.j);
-////            draw_box2d(start, h, h);
-////        }
-//    }
+    if (draw_quadtree) {
+        glColor3f(1,0,0);
+        glLineWidth(0.1);
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        VisSolver vsolver(sim.u, sim.v, sim.viscosity, grid_width, sim.liquid_phi, sim.nodal_solid_phi);
+        vsolver.get_velocities();
+        
+        Vec2f start(0., 0.);
+        vector<Face> u_faces = vsolver.get_u_tree_faces();
+        vector<Face> v_faces = vsolver.get_v_tree_faces();
+
+        for (size_t i = 0; i < u_faces.size(); ++i) {
+            Face& f = u_faces[i];
+            float h = vsolver.tree.get_cell_width(f.depth);
+            start = h * Vec2f((float)f.i, (float)f.j);
+            
+            draw_box2d(start, h, h);
+            draw_box2d(start + Vec2f(h, 0.), h, h);
+        }
+        
+        for (size_t i = 0; i < v_faces.size(); ++i) {
+            Face& f = v_faces[i];
+            float h = vsolver.tree.get_cell_width(f.depth);
+            start = h * Vec2f((float)f.i, (float)f.j);
+            
+            draw_box2d(start, h, h);
+            draw_box2d(start + Vec2f(0., h), h, h);
+        }
+        
+    }
 
 }
 

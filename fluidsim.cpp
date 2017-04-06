@@ -492,7 +492,8 @@ void FluidSim::apply_viscosity(float dt) {
 
 void FluidSim::apply_viscosity_quadtree(float dt) {
     
-    VisSolver vis_solver(u, v, viscosity, width, liquid_phi, nodal_solid_phi, dt);
+    VisSolver vis_solver(u, v, viscosity, width, liquid_phi, nodal_solid_phi);
+    vis_solver.solve_viscosity(dt);
     u = vis_solver.u;
     v = vis_solver.v;
 }

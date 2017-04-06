@@ -20,11 +20,29 @@ typedef Eigen::VectorXf Vecf;
 
 class VisSolver {
     
+public:
+    // VisSolver constructors
+    VisSolver(Array2f u_, Array2f v_, Array2f viscosity_, float width,
+              Array2f liquid_phi_, Array2f solid_phi_);
+    
+    FluidQuadTree tree;
+    
+    Array2f u; // (ni+1) * nj 2d array.
+    Array2f v; // ni * (nj+1) 2d array.
+    Array2f viscosity; // ni * nj 2d array. It's stored at cell centre.
+    Array2f liquid_phi; // Phi is at the cell centre.
+    Array2f solid_phi; // Phi is at the nodal position.
+    
+    void solve_viscosity(float dt);
+    void get_velocities();
+    
+    std::vector<Face> get_u_tree_faces();
+    std::vector<Face> get_v_tree_faces();
+
+private:
     float EPSILON;
     
     // Functions for viscosity solve.
-    void get_velocities();
-    
     void compute_reg_grid_weights();
     void compute_trans_matrices();
     void compute_deformation_operator();
@@ -33,7 +51,6 @@ class VisSolver {
     void compute_tau_vis();
     void compute_rhs();
     
-    void solve_viscosity(float dt);
     void get_grid_taus();
     void get_node_taus();
     
@@ -101,18 +118,7 @@ class VisSolver {
     std::vector<int> tau12_to_node;
     std::unordered_map<int, int> node_to_tau12;
     
-public:
-    // VisSolver constructors
-    VisSolver(Array2f u_, Array2f v_, Array2f viscosity_, float width,
-              Array2f liquid_phi_, Array2f solid_phi_, float dt);
 
-    FluidQuadTree tree;
-    
-    Array2f u; // (ni+1) * nj 2d array.
-    Array2f v; // ni * (nj+1) 2d array.
-    Array2f viscosity; // ni * nj 2d array. It's stored at cell centre.
-    Array2f liquid_phi; // Phi is at the cell centre.
-    Array2f solid_phi; // Phi is at the nodal position.
 };
 
 
