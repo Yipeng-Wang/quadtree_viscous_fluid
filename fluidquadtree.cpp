@@ -10,11 +10,8 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(wi
     nj = liquid_phi.nj;
     dx = width / (float) ni;
     
-    // Test on regular grid.
-    //max_depth = 1;
-    
-    // Test 2 level tree.
-    max_depth = 2;
+    // Test multi-level tree
+    max_depth = min((int)log2(ni), 3);
     
     cell_markers.resize(max_depth);
     cellInds.resize(max_depth);
@@ -33,11 +30,9 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(wi
     // Generate quad-tree, this only works for 2 level trees.
     // TODO: generalize into multi-level tree, a graded method is also required in this case.
     
-    int depth = max_depth - 2;
-    
     float threshold = -2.5 * dx;
     
-    ni_tmp = get_level_dims(depth);
+    ni_tmp = get_level_dims(max_depth - 2);
     for (int i = 0; i < ni_tmp; ++i) for (int j = 0; j < ni_tmp; ++j) {
         
         float phi = 0;
@@ -56,10 +51,51 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(wi
         
         for (int offi = 0; offi < 2; ++offi) {
             for (int offj = 0; offj < 2; ++offj) {
-                cell_markers[depth + 1](i_ind + offi, j_ind + offj) = 0;
+                cell_markers[max_depth - 1](i_ind + offi, j_ind + offj) = 0;
             }
         }
     }
+    
+    for (int k = max_depth - 3; k >= 0; k--) {
+        ni_tmp = get_level_dims(k);
+        for (int i = 0; i < ni_tmp; ++i) for (int j = 0; j < ni_tmp; ++j) {
+            Cell candidate(k, i, j);
+            
+            // Get its 4 children.
+            Cell ul_c = get_child(candidate, NW);
+            Cell ur_c = get_child(candidate, NE);
+            Cell ll_c = get_child(candidate, SW);
+            Cell lr_c = get_child(candidate, SE);
+            
+            // If any child is not a leaf cell, skip it.
+            if (!is_leaf_cell(ul_c) || !is_leaf_cell(ur_c)
+                || !is_leaf_cell(ll_c) || !is_leaf_cell(lr_c)) {
+                continue;
+            }
+            
+            // Check 12 cells around the candidate cell.
+            if (get_leaf_cell(above(ul_c), SE).depth <= k+1
+                && get_leaf_cell(above(ur_c), SE).depth <= k+1
+                && get_leaf_cell(left(ul_c), SE).depth <= k+1
+                && get_leaf_cell(left(ll_c), SE).depth <= k+1
+                && get_leaf_cell(right(ur_c), SE).depth <= k+1
+                && get_leaf_cell(right(lr_c), SE).depth <= k+1
+                && get_leaf_cell(below(ll_c), SE).depth <= k+1
+                && get_leaf_cell(below(lr_c), SE).depth <= k+1
+                
+                && get_leaf_cell(left(above(ul_c)), SE).depth <= k+1
+                && get_leaf_cell(right(above(ur_c)), SE).depth <= k+1
+                && get_leaf_cell(left(below(ll_c)), SE).depth <= k+1
+                && get_leaf_cell(right(below(lr_c)), SE).depth <= k+1) {
+                
+                cell_markers[ul_c.depth](ul_c.i, ul_c.j) = 0;
+                cell_markers[ur_c.depth](ur_c.i, ur_c.j) = 0;
+                cell_markers[ll_c.depth](ll_c.i, ll_c.j) = 0;
+                cell_markers[lr_c.depth](lr_c.i, lr_c.j) = 0;
+            }
+        }
+    }
+    
     reindex();
 }
 
@@ -592,8 +628,8 @@ Cell FluidQuadTree::get_active_parent(Cell c) {
 
 bool FluidQuadTree::is_leaf_cell(const Cell& c) {
     assert(c.depth >= 0 && c.depth < max_depth);
-    
-    bool children_dont_exist = c.depth == max_depth-1? true : cell_markers[c.depth + 1](2 * c.i, 2 * c.j) == 0;
+    bool children_dont_exist = c.depth == max_depth-1? true :
+                            cell_markers[c.depth + 1](2 * c.i, 2 * c.j) == 0;
     return is_cell_active(c) && children_dont_exist;
 }
 
@@ -657,7 +693,7 @@ int FluidQuadTree::get_level_dims(int level) {
 }
 
 float FluidQuadTree::get_cell_width(int level) {
-    return domain_width / (float)get_level_dims(level);
+    return dx * (float)pow(2., max_depth - level - 1);
 }
 
 int FluidQuadTree::get_cell_index(const Cell& c) {

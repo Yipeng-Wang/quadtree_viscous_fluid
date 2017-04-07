@@ -195,7 +195,7 @@ void display(void) {
             start = h * Vec2f((float)f.i, (float)f.j);
             
             draw_box2d(start, h, h);
-            draw_box2d(start + Vec2f(h, 0.), h, h);
+            //draw_box2d(start + Vec2f(h, 0.), h, h);
         }
         
         for (size_t i = 0; i < v_faces.size(); ++i) {
@@ -204,7 +204,7 @@ void display(void) {
             start = h * Vec2f((float)f.i, (float)f.j);
             
             draw_box2d(start, h, h);
-            draw_box2d(start + Vec2f(0., h), h, h);
+            //draw_box2d(start + Vec2f(0., h), h, h);
         }
         
     }

@@ -6,6 +6,8 @@
 
 using namespace std;
 
+bool solve_on_quadtree = false;
+
 float fraction_inside(float phi_left, float phi_right);
 void extrapolate(Array2f& grid, Array2c& valid);
 
@@ -82,9 +84,11 @@ void FluidSim::advance(float dt) {
         advect(substep);
         add_force(substep);
         
-        //apply_viscosity(substep);
-        
-        apply_viscosity_quadtree(substep);
+        if (solve_on_quadtree) {
+            apply_viscosity_quadtree(substep);
+        } else {
+            apply_viscosity(substep);
+        }
         
         apply_projection(substep);
         
