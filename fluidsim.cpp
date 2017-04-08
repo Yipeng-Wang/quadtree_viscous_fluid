@@ -6,7 +6,7 @@
 
 using namespace std;
 
-bool solve_on_quadtree = false;
+bool solve_on_quadtree = true;
 
 float fraction_inside(float phi_left, float phi_right);
 void extrapolate(Array2f& grid, Array2c& valid);
@@ -29,8 +29,8 @@ void FluidSim::initialize(float width_, int ni_, int nj_) {
     u.resize(ni + 1, nj); temp_u.resize(ni + 1, nj); u_weights.resize(ni + 1, nj); u_valid.resize(ni + 1, nj); u_vol.resize(ni + 1, nj);
     v.resize(ni, nj + 1); temp_v.resize(ni, nj + 1); v_weights.resize(ni, nj + 1); v_valid.resize(ni, nj + 1); v_vol.resize(ni, nj + 1);
     
-    // Set the redistance depth to 5 times of dx.
-    redis_depth = 5 * dx;
+    // Set the redistance depth to 4 times of dx.
+    redis_depth = 4. * dx;
     
     c_vol.resize(ni, nj);
     n_vol.resize(ni + 1, nj + 1);
@@ -281,7 +281,7 @@ void FluidSim::compute_phi() {
     }
     
     // More than 1 iteration should generate accurate signed distance.
-    redistance(2);
+    redistance(3);
 
     //"extrapolate" phi into solids if nearby
     for (int j = 0; j < nj; ++j) {

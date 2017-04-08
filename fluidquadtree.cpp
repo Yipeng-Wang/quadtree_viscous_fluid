@@ -10,29 +10,33 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(wi
     nj = liquid_phi.nj;
     dx = width / (float) ni;
     
-    // Test multi-level tree
+    // Set the limit of the tree.
     max_depth = min((int)log2(ni), 3);
     
     cell_markers.resize(max_depth);
-    cellInds.resize(max_depth);
+    cell_inds.resize(max_depth);
     
     int ni_tmp = ni, nj_tmp = nj;
     for (int depth = max_depth-1; depth >= 0; --depth) {
         cell_markers[depth].resize(ni_tmp, nj_tmp);
         cell_markers[depth].assign(1);
         
-        cellInds[depth].resize(ni_tmp, nj_tmp);
-        cellInds[depth].assign(-1);
+        cell_inds[depth].resize(ni_tmp, nj_tmp);
+        //cell_inds[depth].assign(-1);
                 
         ni_tmp /= 2;
     }
     
-    // Generate quad-tree, this only works for 2 level trees.
-    // TODO: generalize into multi-level tree, a graded method is also required in this case.
-    
+    set_cell_markers();
+    reindex();
+}
+
+void FluidQuadTree::set_cell_markers() {
+    // A bandwidth of 2*dx is enough to simulate the fluid.
     float threshold = -2.5 * dx;
     
-    ni_tmp = get_level_dims(max_depth - 2);
+    // Set the 2nd to last level based on level set info.
+    int ni_tmp = get_level_dims(max_depth - 2);
     for (int i = 0; i < ni_tmp; ++i) for (int j = 0; j < ni_tmp; ++j) {
         
         float phi = 0;
@@ -56,6 +60,7 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(wi
         }
     }
     
+    // Set higher levels and ensure the tree is graded.
     for (int k = max_depth - 3; k >= 0; k--) {
         ni_tmp = get_level_dims(k);
         for (int i = 0; i < ni_tmp; ++i) for (int j = 0; j < ni_tmp; ++j) {
@@ -96,7 +101,6 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(wi
         }
     }
     
-    reindex();
 }
 
 void FluidQuadTree::reindex() {
@@ -107,26 +111,27 @@ void FluidQuadTree::reindex() {
         for (int i = 0; i < ni; ++i) for (int j = 0; j < ni; ++j) {
             Cell c(depth, i, j);
             
-            if (is_leaf_cell(c) && is_cell_in_bounds(c)) { //don't index exterior cells
+            if (is_leaf_cell(c)) {
                 leaf_cells.push_back(c);
-                cellInds[depth](i, j) = leaf_cell_count;
+                cell_inds[depth](i, j) = leaf_cell_count;
                 ++leaf_cell_count;
             }
         }
     }
     
-    active_cell_count = leaf_cell_count;
-    // Add extra indices for non-leaf nodes (for alternate axis-aligned solution - *not used for core method*)
+    // Add extra indices for non-leaf cells.
+    int cell_count = leaf_cell_count;
     for (int depth = 0; depth < max_depth; ++depth) {
         int ni = get_level_dims(depth);
         for (int i = 0; i < ni; ++i) for (int j = 0; j < ni; ++j) {
             Cell c(depth, i, j);
-            if (is_cell_active(c) && !is_leaf_cell(c)) {
-                cellInds[depth](i, j) = active_cell_count;
-                ++active_cell_count;
+            if (!is_leaf_cell(c)) {
+                cell_inds[depth](i, j) = cell_count;
+                ++cell_count;
             }
         }
     }
+    
     
     // Set up velocity faces in the right places.
     for (int depth = 0; depth < max_depth; ++depth) {
@@ -234,7 +239,7 @@ void FluidQuadTree::reindex() {
             FacePosition& cur_position = std::get<1>(cur_entry);
             
             if (is_leaf_cell(cur_cell)) {
-                cell_to_face_map(cellInds[cur_cell.depth](cur_cell.i, cur_cell.j), cur_position) = f;
+                cell_to_face_map(cell_inds[cur_cell.depth](cur_cell.i, cur_cell.j), cur_position) = f;
             } else {
                 //push the appropriate 2 children onto the stack
                 Cell child0, child1;
@@ -289,8 +294,8 @@ void FluidQuadTree::reindex() {
             if (i == 0 && j != 0) {
                 Node left_bound_node(depth, i, j, SW);
                 nodes.push_back(left_bound_node);
-                int cell_idx = cellInds[left_bound_node.depth](left_bound_node.i, left_bound_node.j);
-                node_to_face_map[node_idx].push_back(cell_to_face_map(cell_idx,3));
+                int cell_idx = cell_inds[left_bound_node.depth](left_bound_node.i, left_bound_node.j);
+                node_to_face_map[node_idx].push_back(cell_to_face_map(cell_idx, 3));
                 // Update cell_to_node_map.
                 cell_to_node_map(cell_idx, SW) = node_idx;
                 Cell& c = leaf_cells[cell_idx];
@@ -300,7 +305,7 @@ void FluidQuadTree::reindex() {
                 } else {
                     below_c = get_active_parent(below(c));
                 }
-                int below_c_idx = cellInds[below_c.depth](below_c.i, below_c.j);
+                int below_c_idx = cell_inds[below_c.depth](below_c.i, below_c.j);
                 cell_to_node_map(below_c_idx, NW) = node_idx;
                 ++node_idx;
             }
@@ -309,7 +314,7 @@ void FluidQuadTree::reindex() {
             if (i != 0 && j == 0) {
                 Node bottom_bound(depth, i, j, SW);
                 nodes.push_back(bottom_bound);
-                int cell_idx = cellInds[bottom_bound.depth](bottom_bound.i, bottom_bound.j);
+                int cell_idx = cell_inds[bottom_bound.depth](bottom_bound.i, bottom_bound.j);
                 node_to_face_map[node_idx].push_back(cell_to_face_map(cell_idx, 1));
                 // Update cell_to_node_map.
                 cell_to_node_map(cell_idx, SW) = node_idx;
@@ -320,7 +325,7 @@ void FluidQuadTree::reindex() {
                 } else {
                     left_c = get_active_parent(left(c));
                 }
-                int left_c_idx = cellInds[left_c.depth](left_c.i, left_c.j);
+                int left_c_idx = cell_inds[left_c.depth](left_c.i, left_c.j);
                 cell_to_node_map(left_c_idx, SE) = node_idx;
                 node_idx++;
             }
@@ -329,7 +334,7 @@ void FluidQuadTree::reindex() {
             if (i == ni - 1 && j != ni - 1) {
                 Node right_bound(depth, i, j, NE);
                 nodes.push_back(right_bound);
-                int cell_idx = cellInds[right_bound.depth](right_bound.i, right_bound.j);
+                int cell_idx = cell_inds[right_bound.depth](right_bound.i, right_bound.j);
                 node_to_face_map[node_idx].push_back(cell_to_face_map(cell_idx, 2));
                 // Update cell_to_node_map.
                 cell_to_node_map(cell_idx, NE) = node_idx;
@@ -340,7 +345,7 @@ void FluidQuadTree::reindex() {
                 } else {
                     above_c = get_active_parent(above(c));
                 }
-                int above_c_idx = cellInds[above_c.depth](above_c.i, above_c.j);
+                int above_c_idx = cell_inds[above_c.depth](above_c.i, above_c.j);
                 cell_to_node_map(above_c_idx, SE) = node_idx;
                 node_idx++;
             }
@@ -349,7 +354,7 @@ void FluidQuadTree::reindex() {
             if (i != ni - 1 && j == ni - 1) {
                 Node top_bound(depth, i, j, NE);
                 nodes.push_back(top_bound);
-                int cell_idx = cellInds[top_bound.depth](top_bound.i, top_bound.j);
+                int cell_idx = cell_inds[top_bound.depth](top_bound.i, top_bound.j);
                 node_to_face_map[node_idx].push_back(cell_to_face_map(cell_idx, 0));
                 // Update cell_to_node_map.
                 cell_to_node_map(cell_idx, NE) = node_idx;
@@ -360,7 +365,7 @@ void FluidQuadTree::reindex() {
                 } else {
                     right_c = get_active_parent(right(c));
                 }
-                int right_c_idx = cellInds[right_c.depth](right_c.i, right_c.j);
+                int right_c_idx = cell_inds[right_c.depth](right_c.i, right_c.j);
                 cell_to_node_map(right_c_idx, NW) = node_idx;
                 ++node_idx;
             }
@@ -444,10 +449,10 @@ void FluidQuadTree::reindex() {
         
         nodes.push_back(node);
         
-        int LL_leaf_idx = cellInds[LL_leaf.depth](LL_leaf.i, LL_leaf.j);
-        int LR_leaf_idx = cellInds[LR_leaf.depth](LR_leaf.i, LR_leaf.j);
-        int UL_leaf_idx = cellInds[UL_leaf.depth](UL_leaf.i, UL_leaf.j);
-        int UR_leaf_idx = cellInds[UR_leaf.depth](UR_leaf.i, UR_leaf.j);
+        int LL_leaf_idx = cell_inds[LL_leaf.depth](LL_leaf.i, LL_leaf.j);
+        int LR_leaf_idx = cell_inds[LR_leaf.depth](LR_leaf.i, LR_leaf.j);
+        int UL_leaf_idx = cell_inds[UL_leaf.depth](UL_leaf.i, UL_leaf.j);
+        int UR_leaf_idx = cell_inds[UR_leaf.depth](UR_leaf.i, UR_leaf.j);
         // The order the faces is also right, left, top, bottom respect to the node.
         // Update node_to_face_map.
         // Right face.
@@ -501,7 +506,7 @@ void FluidQuadTree::reindex() {
             continue;
         }
         
-        int owner_cell_idx = cellInds[f.depth](f.i, f.j);
+        int owner_cell_idx = cell_inds[f.depth](f.i, f.j);
         Cell& owner_cell = leaf_cells[owner_cell_idx];
         
         // Set face_to_node_map. Every face has two nodes.
@@ -535,63 +540,63 @@ void FluidQuadTree::reindex() {
         
         // Set face_to_cell_map.
         std::stack<Cell> stack;
-        std::vector<int> fir_cell_ids;
-        std::vector<int> sec_cell_ids;
+        std::vector<int> fir_cell_inds;
+        std::vector<int> sec_cell_inds;
         if (f.position == LEFT) {
             stack.push(left(owner_cell));
             while (!stack.empty()) {
                 Cell c = stack.top();
                 stack.pop();
                 if (is_leaf_cell(c)) {
-                    sec_cell_ids.push_back(cellInds[c.depth](c.i, c.j));
+                    sec_cell_inds.push_back(cell_inds[c.depth](c.i, c.j));
                 } else {
                     stack.push(get_child(c, SE));
                     stack.push(get_child(c, NE));
                 }
             }
-            fir_cell_ids.push_back(owner_cell_idx);
+            fir_cell_inds.push_back(owner_cell_idx);
         } else if (f.position == RIGHT) {
             stack.push(right(owner_cell));
             while (!stack.empty()) {
                 Cell c = stack.top();
                 stack.pop();
                 if (is_leaf_cell(c)) {
-                    fir_cell_ids.push_back(cellInds[c.depth](c.i, c.j));
+                    fir_cell_inds.push_back(cell_inds[c.depth](c.i, c.j));
                 } else {
                     stack.push(get_child(c, SW));
                     stack.push(get_child(c, NW));
                     
                 }
             }
-            sec_cell_ids.push_back(owner_cell_idx);
+            sec_cell_inds.push_back(owner_cell_idx);
         } else if (f.position == TOP) {
             stack.push(above(owner_cell));
             while (!stack.empty()) {
                 Cell c = stack.top();
                 stack.pop();
                 if (is_leaf_cell(c)) {
-                    fir_cell_ids.push_back(cellInds[c.depth](c.i, c.j));
+                    fir_cell_inds.push_back(cell_inds[c.depth](c.i, c.j));
                 } else {
                     stack.push(get_child(c, SW));
                     stack.push(get_child(c, SE));
                 }
             }
-            sec_cell_ids.push_back(owner_cell_idx);
+            sec_cell_inds.push_back(owner_cell_idx);
         } else {
             stack.push(below(owner_cell));
             while (!stack.empty()) {
                 Cell c = stack.top();
                 stack.pop();
                 if (is_leaf_cell(c)) {
-                    sec_cell_ids.push_back(cellInds[c.depth](c.i, c.j));
+                    sec_cell_inds.push_back(cell_inds[c.depth](c.i, c.j));
                 } else {
                     stack.push(get_child(c, NW));
                     stack.push(get_child(c, NE));
                 }
             }
-            fir_cell_ids.push_back(owner_cell_idx);
+            fir_cell_inds.push_back(owner_cell_idx);
         }
-        face_to_cell_map[i] = std::make_pair(fir_cell_ids, sec_cell_ids);
+        face_to_cell_map[i] = std::make_pair(fir_cell_inds, sec_cell_inds);
     }
 }
 
@@ -696,8 +701,12 @@ float FluidQuadTree::get_cell_width(int level) {
     return dx * (float)pow(2., max_depth - level - 1);
 }
 
-int FluidQuadTree::get_cell_index(const Cell& c) {
-    return cellInds[c.depth](c.i, c.j);
+int FluidQuadTree::get_cell_idx(const Cell& c) {
+    return cell_inds[c.depth](c.i, c.j);
+}
+
+int FluidQuadTree::get_face_idx(const Face& f) {
+    return cell_inds[f.depth](f.i, f.j);
 }
 
 Cell FluidQuadTree::get_child(const Cell& c, const DiagonalDirection& dir) {
@@ -735,9 +744,6 @@ Cell FluidQuadTree::get_parent(const Cell& c) {
     Cell result(c.depth - 1, c.i / 2, c.j / 2);
     return result;
 }
-
-
-
 
 
 

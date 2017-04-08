@@ -91,6 +91,7 @@ public:
     FluidQuadTree(float width, Array2f liquid_phi_);
     
     //tree overall manipulation
+    void set_cell_markers();
     void reindex();
     
     //boolean tests on tree
@@ -117,12 +118,13 @@ public:
     Vec2f get_node_position(const Node& n);
     
     // Cell indexing info
-    int get_cell_index(const Cell& c);
+    int get_cell_idx(const Cell& c);
+    int get_face_idx(const Face& f);
     int get_level_dims(int depth);
     float get_cell_width(int depth);
     
     std::vector<Array2i> cell_markers;
-	std::vector<Array2i> cellInds;
+	std::vector<Array2i> cell_inds;
     
     // All cells, faces and nodes on the quadtree. 
 	std::vector<Cell> leaf_cells;
@@ -153,7 +155,6 @@ public:
 
     
     int leaf_cell_count;
-    int active_cell_count;
 	int face_count;
 	int node_count;
     int max_depth;

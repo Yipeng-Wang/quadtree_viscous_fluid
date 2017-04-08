@@ -78,13 +78,7 @@ private:
     
     std::vector<Face> u_reg_faces;  // u faces on the regular grids.
     std::vector<Face> v_reg_faces;  // v faces on the regular grids.
-    
-    // Map i + ni *j to idx in u_reg_faces.
-    std::unordered_map<int, int> u_reg_idx_to_face;
-    
-    // Map i + ni * j to idx in v_reg_faces.
-    std::unordered_map<int, int> v_reg_idx_to_face;
-    
+
     Vecf reg_u;
     Vecf reg_v;
     Vecf reg_uv;
@@ -120,7 +114,6 @@ private:
     
 
 };
-
 
 
 #endif /* viscositysolver_hpp */

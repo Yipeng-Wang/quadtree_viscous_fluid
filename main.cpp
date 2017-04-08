@@ -101,7 +101,7 @@ int main(int argc, char **argv) {
     //Stick some liquid particles in the domain, add more particles
     // to avoid noise when plotting the fluid surface.
     int offset = 0;
-    for(int i = 0; i < sqr(grid_resolution) * 1.5; ++i) {
+    for(int i = 0; i < sqr(grid_resolution) * 2.5; ++i) {
         for(int parts = 0; parts < 3; ++parts) {
             float x = randhashf(++offset, 0,1);
             float y = randhashf(++offset, 0,1);
@@ -182,6 +182,7 @@ void display(void) {
         glColor3f(1,0,0);
         glLineWidth(0.1);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        
         VisSolver vsolver(sim.u, sim.v, sim.viscosity, grid_width, sim.liquid_phi, sim.nodal_solid_phi);
         vsolver.get_velocities();
         
@@ -190,21 +191,25 @@ void display(void) {
         vector<Face> v_faces = vsolver.get_v_tree_faces();
 
         for (size_t i = 0; i < u_faces.size(); ++i) {
-            Face& f = u_faces[i];
-            float h = vsolver.tree.get_cell_width(f.depth);
-            start = h * Vec2f((float)f.i, (float)f.j);
-            
+            Face& f_u = u_faces[i];
+            float h = vsolver.tree.get_cell_width(f_u.depth);
+            start = h * Vec2f((float)f_u.i, (float)f_u.j);
             draw_box2d(start, h, h);
-            //draw_box2d(start + Vec2f(h, 0.), h, h);
+            
+            if (f_u.depth == vsolver.tree.max_depth - 1) {
+                draw_box2d(start + Vec2f(h, 0.), h, h);
+            }
         }
         
         for (size_t i = 0; i < v_faces.size(); ++i) {
-            Face& f = v_faces[i];
-            float h = vsolver.tree.get_cell_width(f.depth);
-            start = h * Vec2f((float)f.i, (float)f.j);
-            
+            Face& f_v = v_faces[i];
+            float h = vsolver.tree.get_cell_width(f_v.depth);
+            start = h * Vec2f((float)f_v.i, (float)f_v.j);
             draw_box2d(start, h, h);
-            //draw_box2d(start + Vec2f(0., h), h, h);
+            
+            if (f_v.depth == vsolver.tree.max_depth - 1) {
+                draw_box2d(start + Vec2f(0., h), h, h);
+            }
         }
         
     }
