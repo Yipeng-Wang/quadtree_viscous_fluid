@@ -4,26 +4,30 @@
 #include <stack>
 #include <set>
 
-FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(width), liquid_phi(liquid_phi_) {
+
+int FluidQuadTree::depth_limit = 5;
+float FluidQuadTree::thickness = 2.4;
+
+FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) :
+                                domain_width(width), liquid_phi(liquid_phi_) {
     
     ni = liquid_phi.ni;
     nj = liquid_phi.nj;
     dx = width / (float) ni;
+    bandwidth = -thickness * dx;
     
     // Set the limit of the tree.
-    max_depth = min((int)log2(ni), 3);
+    max_depth = min((int)log2(ni), depth_limit);
     
     cell_markers.resize(max_depth);
     cell_inds.resize(max_depth);
     
     int ni_tmp = ni, nj_tmp = nj;
+    
     for (int depth = max_depth-1; depth >= 0; --depth) {
         cell_markers[depth].resize(ni_tmp, nj_tmp);
         cell_markers[depth].assign(1);
-        
         cell_inds[depth].resize(ni_tmp, nj_tmp);
-        //cell_inds[depth].assign(-1);
-                
         ni_tmp /= 2;
     }
     
@@ -32,8 +36,6 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) : domain_width(wi
 }
 
 void FluidQuadTree::set_cell_markers() {
-    // A bandwidth of 2*dx is enough to simulate the fluid.
-    float threshold = -2.5 * dx;
     
     // Set the 2nd to last level based on level set info.
     int ni_tmp = get_level_dims(max_depth - 2);
@@ -49,7 +51,7 @@ void FluidQuadTree::set_cell_markers() {
         }
         phi *= 0.25f;
         
-        if (phi > threshold) {
+        if (phi > bandwidth) {
             continue;
         }
         
@@ -600,52 +602,16 @@ void FluidQuadTree::reindex() {
     }
 }
 
-Cell FluidQuadTree::above(const Cell& c) {
-    return Cell(c.depth, c.i, c.j + 1);
-}
-
-Cell FluidQuadTree::below(const Cell& c) {
-    return Cell(c.depth, c.i, c.j - 1);
-}
-
-Cell FluidQuadTree::right(const Cell& c) {
-    return Cell(c.depth, c.i + 1, c.j);
-}
-
-Cell FluidQuadTree::left(const Cell& c) {
-    return Cell(c.depth, c.i - 1, c.j);
-}
-
-Cell FluidQuadTree::child(const Cell& c) {
-    return Cell(c.depth + 1, 2 * c.i, 2 * c.j);
-}
-
 Cell FluidQuadTree::get_active_parent(Cell c) {
     assert(is_cell_in_bounds(c));
-    //Note: This may return the cell itself, and that is indeed desired behavior in some places.
+    // Note: This may return the cell itself, and that is indeed desired
+    // behavior in some places.
     while (c.depth > 0 && !is_cell_active(c)) {
         c.depth -= 1;
         c.i /= 2;
         c.j /= 2;
     }
     return c;
-}
-
-bool FluidQuadTree::is_leaf_cell(const Cell& c) {
-    assert(c.depth >= 0 && c.depth < max_depth);
-    bool children_dont_exist = c.depth == max_depth-1? true :
-                            cell_markers[c.depth + 1](2 * c.i, 2 * c.j) == 0;
-    return is_cell_active(c) && children_dont_exist;
-}
-
-bool FluidQuadTree::is_cell_in_bounds(const Cell& c) {
-    int dim_size = get_level_dims(c.depth);
-    return c.i >= 0 && c.j >= 0 && c.i < dim_size && c.j < dim_size;
-}
-
-bool FluidQuadTree::is_cell_active(const Cell& c) {
-    assert(c.depth >= 0 && c.depth < max_depth);
-    return cell_markers[c.depth](c.i, c.j) == 1;
 }
 
 Vec2f FluidQuadTree::get_cell_centre(const Cell& c) {
@@ -691,22 +657,6 @@ Vec2f FluidQuadTree::get_node_position(const Node& n) {
         assert(false);
         return Vec2f(0, 0);
     }
-}
-
-int FluidQuadTree::get_level_dims(int level) {
-    return cell_markers[level].ni;
-}
-
-float FluidQuadTree::get_cell_width(int level) {
-    return dx * (float)pow(2., max_depth - level - 1);
-}
-
-int FluidQuadTree::get_cell_idx(const Cell& c) {
-    return cell_inds[c.depth](c.i, c.j);
-}
-
-int FluidQuadTree::get_face_idx(const Face& f) {
-    return cell_inds[f.depth](f.i, f.j);
 }
 
 Cell FluidQuadTree::get_child(const Cell& c, const DiagonalDirection& dir) {

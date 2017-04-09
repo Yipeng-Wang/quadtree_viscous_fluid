@@ -65,6 +65,8 @@ public:
     Vec2f get_velocity(const Vec2f& position);
     void add_particle(const Vec2f& position);
     
+    static bool solve_on_quadtree;
+    
 private:
     
     Vec2f trace_rk2(const Vec2f& position, float dt);

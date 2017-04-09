@@ -103,8 +103,8 @@ int main(int argc, char **argv) {
     int offset = 0;
     for(int i = 0; i < sqr(grid_resolution) * 2.5; ++i) {
         for(int parts = 0; parts < 3; ++parts) {
-            float x = randhashf(++offset, 0,1);
-            float y = randhashf(++offset, 0,1);
+            float x = randhashf(++offset, 0, 1);
+            float y = randhashf(++offset, 0, 1);
             Vec2f pt(x,y);
             
             //add a column (for buckling) and a beam (for bending) and a disk (for rolling and flowing)
@@ -178,7 +178,7 @@ void display(void) {
         draw_segmentset2d(ls_draw.verts, ls_draw.edges);
     }
     
-    if (draw_quadtree) {
+    if (draw_quadtree && sim.solve_on_quadtree) {
         glColor3f(1,0,0);
         glLineWidth(0.1);
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
