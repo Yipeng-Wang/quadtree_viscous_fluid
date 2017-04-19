@@ -62,6 +62,11 @@ public:
     std::vector<double> vrhs;
     std::vector<double> velocities;
     
+//    Eigen::ConjugateGradient<SpMat, Eigen::Lower|Eigen::Upper> eigen_solver;
+//    SpMat vmatrix;
+//    Vecf vrhs;
+//    Vecf velocities;
+    
     Vec2f get_velocity(const Vec2f& position);
     void add_particle(const Vec2f& position);
     

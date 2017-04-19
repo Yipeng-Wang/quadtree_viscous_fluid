@@ -5,16 +5,16 @@
 #include <set>
 
 
-int FluidQuadTree::depth_limit = 5;
-float FluidQuadTree::thickness = 2.4;
+int FluidQuadTree::depth_limit = 1;
+float FluidQuadTree::bandwidth_factor = 1.5;
 
 FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) :
-                                domain_width(width), liquid_phi(liquid_phi_) {
+domain_width(width), liquid_phi(liquid_phi_) {
     
     ni = liquid_phi.ni;
     nj = liquid_phi.nj;
     dx = width / (float) ni;
-    bandwidth = -thickness * dx;
+    bandwidth = -bandwidth_factor * dx;
     
     // Set the limit of the tree.
     max_depth = min((int)log2(ni), depth_limit);
@@ -31,7 +31,10 @@ FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) :
         ni_tmp /= 2;
     }
     
-    set_cell_markers();
+    if (max_depth > 1) {
+        set_cell_markers();
+    }
+    
     reindex();
 }
 
@@ -614,13 +617,6 @@ Cell FluidQuadTree::get_active_parent(Cell c) {
     return c;
 }
 
-Vec2f FluidQuadTree::get_cell_centre(const Cell& c) {
-    float h = get_cell_width(c.depth);
-    float x = (c.i + 0.5) * h;
-    float y = (c.j + 0.5) * h;
-    return Vec2f(x, y);
-}
-
 Vec2f FluidQuadTree::get_face_centre(const Face& f) {
     
     Cell c(f.depth, f.i, f.j);
@@ -690,10 +686,6 @@ Cell FluidQuadTree::get_leaf_cell(const Cell &c, const DiagonalDirection &dir) {
     return result;
 }
 
-Cell FluidQuadTree::get_parent(const Cell& c) {
-    Cell result(c.depth - 1, c.i / 2, c.j / 2);
-    return result;
-}
 
 
 

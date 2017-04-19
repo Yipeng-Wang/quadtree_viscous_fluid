@@ -100,17 +100,23 @@ public:
     void set_cell_markers();
     void reindex();
     
-    
     Cell get_active_parent(Cell c);
     Cell get_child(const Cell& c, const DiagonalDirection& dir);
     Cell get_leaf_cell(const Cell& c, const DiagonalDirection& dir);
-    Cell get_parent(const Cell& c);
+    inline Cell get_parent(const Cell& c) {
+        Cell result(c.depth - 1, c.i / 2, c.j / 2);
+        return result;
+    }
     
     // Some geometry lookups
-    Vec2f get_cell_centre(const Cell& c);
     Vec2f get_face_centre(const Face& f);
     Vec2f get_node_position(const Node& n);
-    
+    inline Vec2f get_cell_centre(const Cell& c) {
+        float h = get_cell_width(c.depth);
+        float x = (c.i + 0.5) * h;
+        float y = (c.j + 0.5) * h;
+        return Vec2f(x, y);
+    }
     
     //boolean tests on tree.
     inline bool is_leaf_cell(const Cell& c) {
@@ -205,7 +211,7 @@ private:
     float bandwidth;
     
     static int depth_limit;     // Maximum levels of the tree.
-    static float thickness;     // The bandwidth is equal to thickness * dx.
+    static float bandwidth_factor;     // The bandwidth is equal to bandwidth_factor * dx.
 };
 
 #endif 

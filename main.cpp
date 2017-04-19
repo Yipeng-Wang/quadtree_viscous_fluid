@@ -25,7 +25,7 @@ bool draw_particles = false;
 bool draw_velocities = false;
 bool draw_boundaries = true;
 bool draw_surface = true;
-bool draw_quadtree = true;
+bool draw_quadtree = false;
 
 float grid_width = 1;
 
