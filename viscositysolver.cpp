@@ -7,15 +7,23 @@
 //
 
 #include "util.h"
+#include "pcgsolver/blas_wrapper.h"
+#include "pcgsolver/pcg_solver.h"
+#include "pcgsolver/sparse_matrix.h"
 #include "viscositysolver.h"
+
 
 using namespace std;
 
-static void compute_volume_fractions(const Array2f& levelset, Array2f& fractions,
+void compute_volume_fractions(const Array2f& levelset, Array2f& fractions,
                                      Vec2f fraction_origin, int subdivision);
 
-static SpMat build_large_diagnol(SpMat m1, SpMat m2);
+// Build one large matrix by adding m1 to its upper left corner and m2 to its
+// lower right corner.
+SpMat build_large_diagnol(SpMat m1, SpMat m2);
 
+// Copy an Eigen sparse matrix to Robert's SparseMatrixd.
+static SparseMatrixd copy_sparse_matrix(SpMat m);
 
 
 VisSolver::VisSolver(Array2f u_, Array2f v_, Array2f viscosity_, float width,
@@ -87,7 +95,25 @@ void VisSolver::solve_viscosity(float dt) {
     Vecf tree_uv = cg_solver.solve(rhs);
     cout << "#iterations:     " << cg_solver.iterations() << endl;
     cout << "estimated error: " << cg_solver.error()      << endl;
-
+    
+    /***********************************************
+    // Solve the linear system with Robert's solver.
+    SparseMatrixd r_matrix= copy_sparse_matrix(sym_mat);
+    vector<double> r_rhs;
+    for (int i = 0; i < rhs.size(); ++i) {
+        r_rhs.push_back(rhs[i]);
+    }
+    double res_out;
+    int iter_out;
+    PCGSolver<double> solver;
+    vector<double> r_velocities(rhs.size());
+    solver.solve(r_matrix, r_rhs, r_velocities, res_out, iter_out);
+    Vecf tree_uv(r_velocities.size());
+    for (int i = 0; i < r_velocities.size(); ++i) {
+        tree_uv[i] = r_velocities[i];
+    }
+    ************************************************/
+    
     // M multiply u reg.
     Vecf Mu_reg = reg_uv.cwiseProduct(M_reg_uv) + (dt * H.transpose()
                                                    * vis_operator * tree_uv);
@@ -1029,7 +1055,7 @@ vector<Face> VisSolver::get_v_tree_faces() {
 
 // Divide each control volume into several subdivision and count the actual
 // volume on the free surface.
-static void compute_volume_fractions(const Array2f& levelset, Array2f& fractions,
+void compute_volume_fractions(const Array2f& levelset, Array2f& fractions,
                                      Vec2f fraction_origin, int subdivision) {
     
     //Assumes levelset and fractions have the same dx
@@ -1056,9 +1082,8 @@ static void compute_volume_fractions(const Array2f& levelset, Array2f& fractions
 }
 
 
-// Build one large matrix by adding m1 to its upper left corner and m2 to its
-// lower right corner.
-static SpMat build_large_diagnol(SpMat m1, SpMat m2) {
+
+SpMat build_large_diagnol(SpMat m1, SpMat m2) {
     SpMat m(m1.rows() + m2.rows(), m1.cols() + m2.cols());
     m.reserve(m1.nonZeros() + m2.nonZeros());
     
@@ -1076,5 +1101,16 @@ static SpMat build_large_diagnol(SpMat m1, SpMat m2) {
         }
     }
     return m;
+}
+
+SparseMatrixd copy_sparse_matrix(SpMat m) {
+    SparseMatrixd m1((int)m.rows());
+    m1.zero();
+    for (int k = 0; k < m.outerSize(); ++k) {
+        for (SpMat::InnerIterator it(m,k); it; ++it) {
+            m1.set_element((int)it.row(), (int)it.col(), it.value());
+        }
+    }
+    return m1;
 }
 

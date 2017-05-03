@@ -17,7 +17,6 @@
 typedef Eigen::SparseMatrix<float> SpMat;
 typedef Eigen::VectorXf Vecf;
 
-
 class VisSolver {
     
 public:
@@ -38,10 +37,10 @@ public:
     
     std::vector<Face> get_u_tree_faces();
     std::vector<Face> get_v_tree_faces();
-
+    
 private:
     float EPSILON;
-    
+
     // Functions for viscosity solve.
     void compute_reg_grid_weights();
     void compute_trans_matrices();

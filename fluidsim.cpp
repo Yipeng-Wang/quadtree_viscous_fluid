@@ -6,7 +6,7 @@
 
 using namespace std;
 
-bool FluidSim::solve_on_quadtree = true;
+bool FluidSim::solve_on_quadtree = false;
 
 float fraction_inside(float phi_left, float phi_right);
 void extrapolate(Array2f& grid, Array2c& valid);
@@ -224,41 +224,6 @@ void FluidSim::compute_phi() {
     
     // The signed distance is always smaller than 5*dx
     liquid_phi.assign(5 * dx);
-    
-//    	// Applying Zhu and Robert's surface construction method.
-//    	float h = 1.5 * dx;
-//    	for (int p = 0; p < particles.size(); ++p) {
-//    		Vec2f point = particles[p];
-//    		Vec2f new_point(0, 0);
-//    		float K = 0;
-//    		// Find neighbors;
-//    		for (int p1 = 0; p1 < particles.size(); ++p1) {
-//    			Vec2f neighbor_point = particles[p1];
-//    			float s = dist(point, neighbor_point) / h;
-//    			if (s >= 1) {
-//    				continue;
-//    			}
-//    			float k = pow(1 - s*s, 3);
-//    			new_point += neighbor_point * k;
-//    			K += k;
-//    		}
-//    		new_point /= K;
-//    		int i, j;
-//    		float fx, fy;
-//    		//determine containing cell;
-//    		get_barycentric((new_point[0]) / dx - 0.5f, i, fx, 0, ni);
-//    		get_barycentric((new_point[1]) / dx - 0.5f, j, fy, 0, nj);
-//    
-//    		//compute distance to surrounding few points, keep if it's the minimum
-//    		for (int j_off = j - 2; j_off <= j + 2; ++j_off) for (int i_off = i - 2; i_off <= i + 2; ++i_off) {
-//    			if (i_off < 0 || i_off >= ni || j_off < 0 || j_off >= nj) {
-//    				continue;
-//    			}
-//    			Vec2f pos((i_off + 0.5f)*dx, (j_off + 0.5f)*dx);
-//    			float phi_temp = dist(pos, new_point) - 1.01*particle_radius;
-//    			liquid_phi(i_off, j_off) = min(liquid_phi(i_off, j_off), phi_temp);
-//    		}
-//    	}
     
     // Calculate the level set without kernel function.
     for (int p = 0; p < particles.size(); ++p) {

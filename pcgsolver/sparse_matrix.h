@@ -152,6 +152,17 @@ struct SparseMatrix
       }
       output<<"], "<<n<<", "<<n<<");"<<std::endl;
    }
+    
+    
+    // Used for debug purpose.
+    void print_matrix()
+    {
+        for(unsigned int i=0; i<n; ++i){
+            for(unsigned int j=0; j<index[i].size(); ++j){
+                std::cout<<"("<< i << ", " << index[i][j] << ", " << value[i][j] << "); ";
+            }
+        }
+    }
 };
 
 typedef SparseMatrix<float> SparseMatrixf;

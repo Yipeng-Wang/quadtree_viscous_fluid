@@ -2,10 +2,9 @@
 
 #include <vector>
 #include <stack>
-#include <set>
 
 
-int FluidQuadTree::depth_limit = 1;
+int FluidQuadTree::depth_limit = 3;
 float FluidQuadTree::bandwidth_factor = 1.5;
 
 FluidQuadTree::FluidQuadTree(float width, Array2f liquid_phi_) :

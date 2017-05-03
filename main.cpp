@@ -16,7 +16,7 @@
 using namespace std;
 
 //Try changing the grid resolution
-int grid_resolution = 100;
+int grid_resolution = 80;
 float timestep = 0.002;
 
 //Display properties

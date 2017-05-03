@@ -8,8 +8,9 @@
 // non-positive, and row sums are non-negative).
 
 #include <cmath>
-#include "sparse_matrix.h"
+#include <cassert>
 #include "blas_wrapper.h"
+#include "sparse_matrix.h"
 
 //============================================================================
 // A simple compressed sparse column data structure (with separate diagonal)
@@ -284,7 +285,7 @@ struct PCGSolver
       return false;
    }
 
-   protected:
+   //protected:
 
    // internal structures
    SparseColumnLowerFactor<T> ic_factor; // modified incomplete cholesky factor
