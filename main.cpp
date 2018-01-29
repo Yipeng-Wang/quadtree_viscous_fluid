@@ -20,12 +20,12 @@ int grid_resolution = 80;
 float timestep = 0.002;
 
 //Display properties
-bool draw_grid = false ;
+bool draw_grid = false;
 bool draw_particles = false;
 bool draw_velocities = false;
 bool draw_boundaries = true;
 bool draw_surface = true;
-bool draw_quadtree = false;
+bool draw_quadtree = true;
 
 float grid_width = 1;
 

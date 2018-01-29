@@ -6,7 +6,7 @@
 
 using namespace std;
 
-bool FluidSim::solve_on_quadtree = false;
+bool FluidSim::solve_on_quadtree = true;
 
 float fraction_inside(float phi_left, float phi_right);
 void extrapolate(Array2f& grid, Array2c& valid);
