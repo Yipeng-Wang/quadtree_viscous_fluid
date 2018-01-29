@@ -684,7 +684,3 @@ Cell FluidQuadTree::get_leaf_cell(const Cell &c, const DiagonalDirection &dir) {
   }
   return result;
 }
-
-
-
-

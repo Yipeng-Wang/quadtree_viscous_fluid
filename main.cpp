@@ -68,12 +68,6 @@ float square_phi(const Vec2f& position, const Vec2f& centre, float side) {
 
 float boundary_phi(const Vec2f& position) {
   float phi0 = square_phi(position, c0, side);
-  
-  //   float phi0 = circle_phi(position, c0, rad0);
-  //   float phi1 = circle_phi(position, c1, rad1);
-  //   float phi2 = circle_phi(position, c2, rad2);
-  //   float phi3 = circle_phi(position, c3, rad3);
-  
   return phi0;//min(min(phi0,phi1),min(phi2,phi3));
 }
 
@@ -121,7 +115,6 @@ int main(int argc, char **argv) {
   Gluvi::run();
   return 0;
 }
-
 
 void display(void) {
   

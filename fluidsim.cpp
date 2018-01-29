@@ -926,7 +926,5 @@ void extrapolate(Array2f& grid, Array2c& valid) {
         
       }
     }
-    
   }
-  
 }
